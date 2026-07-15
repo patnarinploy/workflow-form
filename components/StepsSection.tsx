@@ -199,7 +199,7 @@ export function StepsSection({
     if (to < 0 || to >= steps.length) return;
     const next = steps.slice();
     const [moved] = next.splice(from, 1);
-    next.splice(idx, 0, moved);
+    next.splice(to, 0, moved);
     onChange(next);
   }
 }
