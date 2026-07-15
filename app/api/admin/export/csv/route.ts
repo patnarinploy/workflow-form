@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { loadAndReconcile } from "@/lib/reconcile";
+import { staffNick } from "@/lib/staff";
 
 function csvEscape(value: unknown): string {
   const str = value === null || value === undefined ? "" : String(value);
@@ -11,50 +13,27 @@ function csvEscape(value: unknown): string {
 
 export async function GET() {
   const supabase = createServiceClient();
-  const { data, error } = await supabase
-    .from("steps")
-    .select("step_order, action, actor, output, handoff_to, approver, submissions(team_name, submitted_by)")
-    .order("submission_id", { ascending: true })
-    .order("step_order", { ascending: true });
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  const { result } = await loadAndReconcile(supabase);
 
   const header = [
-    "team_name",
-    "submitted_by",
-    "step_order",
-    "action",
-    "actor",
-    "output",
-    "handoff_to",
-    "approver",
+    "from_id",
+    "from_nick",
+    "to_id",
+    "to_nick",
+    "status",
+    "sender_asserted",
+    "receiver_asserted",
   ];
 
-  type StepJoinRow = {
-    step_order: number;
-    action: string | null;
-    actor: string | null;
-    output: string | null;
-    handoff_to: string | null;
-    approver: string | null;
-    submissions: { team_name: string; submitted_by: string } | { team_name: string; submitted_by: string }[] | null;
-  };
-
-  const rows = ((data as StepJoinRow[] | null) ?? []).map((s) => {
-    const sub = Array.isArray(s.submissions) ? s.submissions[0] : s.submissions;
-    return [
-      sub?.team_name ?? "",
-      sub?.submitted_by ?? "",
-      s.step_order,
-      s.action ?? "",
-      s.actor ?? "",
-      s.output ?? "",
-      s.handoff_to ?? "",
-      s.approver ?? "",
-    ];
-  });
+  const rows = result.edges.map((e) => [
+    e.from,
+    staffNick(e.from),
+    e.to,
+    staffNick(e.to),
+    e.status,
+    e.senderAsserted ? "yes" : "no",
+    e.receiverAsserted ? "yes" : "no",
+  ]);
 
   const csv = [header, ...rows].map((r) => r.map(csvEscape).join(",")).join("\n");
 
@@ -62,7 +41,7 @@ export async function GET() {
   return new NextResponse("﻿" + csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="workflow-steps.csv"`,
+      "Content-Disposition": `attachment; filename="workflow-truecj-links.csv"`,
     },
   });
 }

@@ -1,5 +1,5 @@
-import { FormClient } from "@/components/FormClient";
+import { HomePicker } from "@/components/HomePicker";
 
 export default function Home() {
-  return <FormClient />;
+  return <HomePicker />;
 }
