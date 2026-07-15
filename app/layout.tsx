@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Sans_Thai, Bai_Jamjuree } from "next/font/google";
 import "./globals.css";
+import { AdminLink } from "@/components/AdminLink";
 
 const bodyFont = IBM_Plex_Sans_Thai({
   variable: "--font-body",
@@ -26,7 +27,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="th" className={`${bodyFont.variable} ${dispFont.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-[var(--bg)] text-[var(--ink)]">{children}</body>
+      <body className="min-h-full flex flex-col bg-[var(--bg)] text-[var(--ink)]">
+        <AdminLink />
+        {children}
+      </body>
     </html>
   );
 }
