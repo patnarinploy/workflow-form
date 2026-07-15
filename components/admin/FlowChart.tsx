@@ -1,14 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ReactFlow, Background, Controls, MarkerType, type Node, type Edge as RFEdge } from "@xyflow/react";
+import { ReactFlow, Background, Controls, MarkerType, Position, type Node, type Edge as RFEdge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import dagre from "@dagrejs/dagre";
-import { Edge } from "@/lib/reconcile";
-import { getStaff, GROUP_ORDER, GROUP_LABEL, StaffGroup, staffNick } from "@/lib/staff";
+import { FlowPerson, PairEdge } from "@/lib/reconcile";
+import { getStaff, GROUP_ORDER, GROUP_LABEL, StaffGroup, staffNick, STAFF } from "@/lib/staff";
 
-const NODE_W = 150;
-const NODE_H = 44;
+const LANE_W = 240;
+const LANE_GAP = 44;
+const HEADER_H = 44;
+const JOB_HEAD_H = 30;
+const STEP_H = 58;
+const STEP_GAP = 8;
+const JOB_PAD_BOTTOM = 12;
+const JOB_GAP = 18;
 
 const GROUP_COLOR: Record<StaffGroup, string> = {
   Executive: "#7C5CBF",
@@ -17,9 +22,12 @@ const GROUP_COLOR: Record<StaffGroup, string> = {
   Operation: "#B6841C",
 };
 
-export function FlowChart({ edges }: { edges: Edge[] }) {
+function truncate(s: string, n = 46) {
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+
+export function FlowChart({ structure, edges }: { structure: FlowPerson[]; edges: PairEdge[] }) {
   const [enabled, setEnabled] = useState<Set<StaffGroup>>(new Set(GROUP_ORDER));
-  const [showOneSided, setShowOneSided] = useState(true);
 
   const toggleGroup = (g: StaffGroup) =>
     setEnabled((prev) => {
@@ -32,158 +40,173 @@ export function FlowChart({ edges }: { edges: Edge[] }) {
   const { nodes, rfEdges, empty } = useMemo(() => {
     const groupOf = (id: string) => getStaff(id)?.group;
 
-    const shown = edges.filter((e) => {
-      if (e.status !== "matched" && !showOneSided) return false;
-      const gf = groupOf(e.from);
-      const gt = groupOf(e.to);
-      return !!gf && !!gt && enabled.has(gf) && enabled.has(gt);
-    });
+    const byId = new Map(structure.map((p) => [p.personId, p]));
+    const lanePeople = STAFF.filter((s) => byId.has(s.id) && (byId.get(s.id)!.jobs.length > 0) && enabled.has(s.group)).map((s) => s.id);
+    const laneSet = new Set(lanePeople);
 
-    const nodeIds = new Set<string>();
-    for (const e of shown) {
-      nodeIds.add(e.from);
-      nodeIds.add(e.to);
-    }
-    if (nodeIds.size === 0) {
+    if (lanePeople.length === 0) {
       return { nodes: [] as Node[], rfEdges: [] as RFEdge[], empty: true };
     }
 
-    // dagre for horizontal ranking (left-to-right flow)
-    const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: "LR", nodesep: 20, ranksep: 90, marginx: 20, marginy: 20 });
-    g.setDefaultEdgeLabel(() => ({}));
-    for (const id of nodeIds) g.setNode(id, { width: NODE_W, height: NODE_H });
-    for (const e of shown) g.setEdge(e.from, e.to);
-    dagre.layout(g);
+    const edgeMap = new Map<string, PairEdge>();
+    for (const e of edges) edgeMap.set(`${e.from}|${e.to}`, e);
 
-    const dagreX = new Map<string, number>();
-    let minX = Infinity;
-    let maxX = -Infinity;
-    for (const id of nodeIds) {
-      const x = g.node(id).x;
-      dagreX.set(id, x);
-      minX = Math.min(minX, x);
-      maxX = Math.max(maxX, x);
-    }
-
-    // Assign lanes by group; within lane spread by x with simple collision avoidance.
-    const lanes = GROUP_ORDER.filter((grp) => [...nodeIds].some((id) => groupOf(id) === grp));
-    const laneNodes = new Map<StaffGroup, string[]>();
-    for (const grp of lanes) {
-      laneNodes.set(
-        grp,
-        [...nodeIds].filter((id) => groupOf(id) === grp).sort((a, b) => (dagreX.get(a)! - dagreX.get(b)!))
-      );
-    }
-
-    const subRowOf = new Map<string, number>();
-    const laneMaxSub = new Map<StaffGroup, number>();
-    for (const grp of lanes) {
-      let lastRight = -Infinity;
-      let sub = 0;
-      let maxSub = 0;
-      for (const id of laneNodes.get(grp)!) {
-        const x = dagreX.get(id)!;
-        if (x - lastRight < NODE_W + 24) sub += 1;
-        else sub = 0;
-        subRowOf.set(id, sub);
-        maxSub = Math.max(maxSub, sub);
-        lastRight = x;
-      }
-      laneMaxSub.set(grp, maxSub);
-    }
-
-    const rowH = NODE_H + 14;
-    const laneLabelH = 26;
-    const laneTop = new Map<StaffGroup, number>();
-    let cursor = 0;
-    for (const grp of lanes) {
-      laneTop.set(grp, cursor);
-      const rows = (laneMaxSub.get(grp) ?? 0) + 1;
-      cursor += laneLabelH + rows * rowH + 24;
-    }
-
-    const bandLeft = minX - NODE_W / 2 - 30;
-    const bandWidth = maxX - minX + NODE_W + 60;
+    const laneX = new Map<string, number>();
+    lanePeople.forEach((pid, i) => laneX.set(pid, i * (LANE_W + LANE_GAP)));
 
     const outNodes: Node[] = [];
+    const receiverStepId = (q: string, p: string): string | null => {
+      const qp = byId.get(q);
+      if (!qp) return null;
+      for (const j of qp.jobs) for (const s of j.steps) if (s.waitsFor.includes(p)) return s.id;
+      return null;
+    };
 
-    // lane bands (behind)
-    for (const grp of lanes) {
-      const rows = (laneMaxSub.get(grp) ?? 0) + 1;
+    for (const pid of lanePeople) {
+      const person = byId.get(pid)!;
+      const x = laneX.get(pid)!;
+      const grp = groupOf(pid)!;
+      const color = GROUP_COLOR[grp];
+
       outNodes.push({
-        id: `lane-${grp}`,
-        position: { x: bandLeft, y: laneTop.get(grp)! },
-        data: { label: GROUP_LABEL[grp] },
+        id: `header-${pid}`,
+        position: { x, y: 0 },
+        data: { label: staffNick(pid) },
         draggable: false,
         selectable: false,
         connectable: false,
-        zIndex: 0,
+        targetPosition: Position.Top,
+        sourcePosition: Position.Bottom,
         style: {
-          width: bandWidth,
-          height: laneLabelH + rows * rowH + 8,
-          background: `${GROUP_COLOR[grp]}0F`,
-          border: `1px solid ${GROUP_COLOR[grp]}33`,
-          borderRadius: 12,
-          color: GROUP_COLOR[grp],
-          fontSize: 11,
-          fontWeight: 700,
-          textAlign: "left",
-          padding: "6px 10px",
-          alignItems: "flex-start",
-          justifyContent: "flex-start",
-          display: "flex",
-        },
-      });
-    }
-
-    // person nodes
-    for (const id of nodeIds) {
-      const grp = groupOf(id)!;
-      const x = dagreX.get(id)!;
-      const y = laneTop.get(grp)! + laneLabelH + subRowOf.get(id)! * rowH + 6;
-      outNodes.push({
-        id,
-        position: { x, y },
-        data: { label: staffNick(id) },
-        draggable: true,
-        selectable: false,
-        connectable: false,
-        zIndex: 1,
-        style: {
-          width: NODE_W,
-          height: NODE_H,
-          background: "#fff",
-          border: `1.5px solid ${GROUP_COLOR[grp]}`,
+          width: LANE_W,
+          height: HEADER_H,
+          background: color,
+          color: "#fff",
+          border: "none",
           borderRadius: 10,
-          fontSize: 13,
-          fontWeight: 600,
-          color: "#1C2A25",
+          fontSize: 14,
+          fontWeight: 700,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
         },
       });
+
+      let y = HEADER_H + 16;
+      for (const job of person.jobs) {
+        const jobHeight = JOB_HEAD_H + job.steps.length * STEP_H + JOB_PAD_BOTTOM;
+        outNodes.push({
+          id: `job-${job.id}`,
+          position: { x, y },
+          data: { label: truncate(job.name, 30) },
+          draggable: false,
+          selectable: false,
+          connectable: false,
+          zIndex: 0,
+          style: {
+            width: LANE_W,
+            height: jobHeight,
+            background: `${color}0D`,
+            border: `1.5px solid ${color}44`,
+            borderRadius: 12,
+            fontSize: 12,
+            fontWeight: 700,
+            color,
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "flex-start",
+            padding: "6px 10px",
+          },
+        });
+
+        job.steps.forEach((s, si) => {
+          const hasApprover = s.approvers.length > 0 || s.approverExternal;
+          const approverNames = [...s.approvers.map(staffNick), ...(s.approverExternal ? ["ลูกค้า/ภายนอก"] : [])].join(", ");
+          outNodes.push({
+            id: `step-${s.id}`,
+            parentId: `job-${job.id}`,
+            extent: "parent",
+            position: { x: 12, y: JOB_HEAD_H + si * STEP_H },
+            data: {
+              label: (
+                <div style={{ textAlign: "left", width: "100%" }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.25 }}>
+                    {si + 1}. {truncate(s.action)}
+                  </div>
+                  {hasApprover && (
+                    <div style={{ fontSize: 10.5, color: "#128A64", marginTop: 2 }}>🔒 อนุมัติ: {approverNames}</div>
+                  )}
+                </div>
+              ),
+            },
+            draggable: false,
+            selectable: false,
+            connectable: false,
+            targetPosition: Position.Top,
+            sourcePosition: Position.Bottom,
+            style: {
+              width: LANE_W - 24,
+              height: STEP_H - STEP_GAP,
+              background: "#fff",
+              border: hasApprover ? "2.5px solid #128A64" : "1px solid var(--line, #E3E8E4)",
+              borderRadius: 8,
+              padding: "6px 8px",
+              display: "flex",
+              alignItems: "center",
+              fontSize: 12,
+            },
+          });
+        });
+
+        y += jobHeight + JOB_GAP;
+      }
     }
 
-    const outEdges: RFEdge[] = shown.map((e) => {
-      const oneSided = e.status !== "matched";
-      const color = oneSided ? "#B65418" : "#128A64";
-      return {
-        id: `${e.from}->${e.to}`,
-        source: e.from,
-        target: e.to,
-        style: { stroke: color, strokeWidth: 1.8, strokeDasharray: oneSided ? "6 4" : undefined },
-        markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
+    const outEdges: RFEdge[] = [];
+    const seen = new Set<string>();
+    const pushEdge = (source: string, target: string, kind: "seq" | "matched" | "oneSided") => {
+      const id = `${kind}:${source}->${target}`;
+      if (seen.has(id)) return;
+      seen.add(id);
+      const stroke = kind === "seq" ? "#1C2A25" : kind === "matched" ? "#128A64" : "#B65418";
+      outEdges.push({
+        id,
+        source,
+        target,
+        style: { stroke, strokeWidth: kind === "seq" ? 1.4 : 2, strokeDasharray: kind === "oneSided" ? "6 4" : undefined },
+        markerEnd: { type: MarkerType.ArrowClosed, color: stroke, width: 14, height: 14 },
         zIndex: 5,
-      };
-    });
+      });
+    };
+
+    for (const pid of lanePeople) {
+      const person = byId.get(pid)!;
+      for (const job of person.jobs) {
+        for (let i = 0; i < job.steps.length - 1; i++) {
+          pushEdge(`step-${job.steps[i].id}`, `step-${job.steps[i + 1].id}`, "seq");
+        }
+        for (const s of job.steps) {
+          for (const q of s.sendsTo) {
+            if (!laneSet.has(q)) continue;
+            const pe = edgeMap.get(`${pid}|${q}`);
+            const status = pe?.status ?? "matched";
+            const rid = receiverStepId(q, pid);
+            const target = rid ? `step-${rid}` : `header-${q}`;
+            pushEdge(`step-${s.id}`, target, status === "matched" ? "matched" : "oneSided");
+          }
+          for (const xid of s.waitsFor) {
+            if (!laneSet.has(xid)) continue;
+            const pe = edgeMap.get(`${xid}|${pid}`);
+            if (pe && pe.status === "mismatch" && !pe.senderAsserted) {
+              pushEdge(`header-${xid}`, `step-${s.id}`, "oneSided");
+            }
+          }
+        }
+      }
+    }
 
     return { nodes: outNodes, rfEdges: outEdges, empty: false };
-  }, [edges, enabled, showOneSided]);
-
-  const matchedCount = edges.filter((e) => e.status === "matched").length;
-  const oneSidedCount = edges.length - matchedCount;
+  }, [structure, edges, enabled]);
 
   return (
     <div>
@@ -193,32 +216,28 @@ export function FlowChart({ edges }: { edges: Edge[] }) {
           <button
             key={g}
             onClick={() => toggleGroup(g)}
-            className={`text-[12px] font-semibold px-2.5 py-1 rounded-full border ${
-              enabled.has(g) ? "text-white" : "text-[var(--muted)] bg-transparent"
-            }`}
+            className={`text-[12px] font-semibold px-2.5 py-1 rounded-full border ${enabled.has(g) ? "text-white" : "text-[var(--muted)] bg-transparent"}`}
             style={enabled.has(g) ? { background: GROUP_COLOR[g], borderColor: GROUP_COLOR[g] } : { borderColor: "var(--field-bd)" }}
           >
             {GROUP_LABEL[g]}
           </button>
         ))}
-        <label className="ml-auto flex items-center gap-1.5 text-[12.5px] text-[var(--muted)] cursor-pointer">
-          <input type="checkbox" checked={showOneSided} onChange={(e) => setShowOneSided(e.target.checked)} />
-          แสดงเส้นข้างเดียว
-        </label>
       </div>
 
       <div className="flex flex-wrap gap-4 mb-2 text-[12px] text-[var(--muted)]">
-        <span className="flex items-center gap-1.5"><span className="w-6 h-0.5 bg-[#128A64]" /> จับคู่ได้ ({matchedCount})</span>
-        <span className="flex items-center gap-1.5"><span className="w-6 h-0 border-t-2 border-dashed border-[#B65418]" /> เส้นข้างเดียว ({oneSidedCount})</span>
+        <span className="flex items-center gap-1.5"><span className="w-6 h-0.5 bg-[#1C2A25]" /> ลำดับใน job</span>
+        <span className="flex items-center gap-1.5"><span className="w-6 h-0.5 bg-[#128A64]" /> ส่งงาน (ยืนยันสองฝั่ง)</span>
+        <span className="flex items-center gap-1.5"><span className="w-6 h-0 border-t-2 border-dashed border-[#B65418]" /> ส่งงาน (ฝั่งเดียว)</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 border-2 border-[#128A64] rounded-sm" /> 🔒 ต้องอนุมัติ</span>
       </div>
 
-      <div className="h-[560px] bg-[var(--surface)] border border-[var(--line)] rounded-[16px] overflow-hidden">
+      <div className="h-[640px] bg-[var(--surface)] border border-[var(--line)] rounded-[16px] overflow-hidden">
         {empty ? (
           <div className="h-full flex items-center justify-center text-[13.5px] text-[var(--faint)] px-6 text-center">
-            ยังไม่มีเส้นที่จะแสดง (ต้องมีคนกรอกที่ส่ง/รับงานกันก่อน หรือลองเปิดกลุ่มเพิ่ม)
+            ยังไม่มีใครกรอก หรือกลุ่มที่เลือกยังไม่มีข้อมูล — ลองเปิดกลุ่มเพิ่ม
           </div>
         ) : (
-          <ReactFlow nodes={nodes} edges={rfEdges} fitView minZoom={0.1} proOptions={{ hideAttribution: true }}>
+          <ReactFlow nodes={nodes} edges={rfEdges} fitView minZoom={0.05} proOptions={{ hideAttribution: true }}>
             <Background color="#E3E8E4" gap={18} />
             <Controls showInteractive={false} />
           </ReactFlow>
