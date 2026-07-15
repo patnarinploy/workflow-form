@@ -86,7 +86,7 @@ export function StepsSection({
                 className={overIndex === idx ? "bg-[var(--accent-soft)]" : ""}
               >
                 <td className="pt-4 pb-2 text-center cursor-grab select-none text-[var(--faint)]" title="ลากเพื่อสลับลำดับ">
-                  ⣿
+                  ⠿
                 </td>
                 <td className="font-disp font-semibold text-[var(--faint)] text-[13px] pt-4 pb-2 text-center w-[26px]">
                   {idx + 1}
@@ -199,7 +199,7 @@ export function StepsSection({
     if (to < 0 || to >= steps.length) return;
     const next = steps.slice();
     const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
+    next.splice(idx, 0, moved);
     onChange(next);
   }
 }
