@@ -1,46 +1,30 @@
-# Workflow Mapping Form
+# True CJ Creations — Workflow Mapping
 
-เว็บแอปเก็บข้อมูล workflow ของแต่ละทีม เพื่อนำไปวาดผัง swimlane ต่อ
+เว็บแอปเก็บข้อมูล workflow แบบ "แต่ละคนกรอกเฉพาะงานของตัวเอง" แล้วระบบเอาคำตอบทุกคนมาต่อกันเป็นผังอัตโนมัติ โดยใช้ "จุดส่งงาน" (ได้มาจากใคร / ส่งให้ใครต่อ) เป็นตัวเชื่อม
+
+หลักการสำคัญ: **ทุกช่องที่อ้างถึงคนเป็น dropdown เลือกจากรายชื่อ 32 คน เก็บเป็น `person_id` เท่านั้น ไม่มี free text** จึงจับคู่การส่งงานสองฝั่งได้
 
 - Next.js (App Router) + TypeScript + Tailwind
-- Supabase (Postgres + RLS) สำหรับเก็บข้อมูล
-- `/` แบบฟอร์ม 7 ส่วน, autosave ลง localStorage, validate required fields
-- `/thanks` หน้าขอบคุณ
-- `/admin` หน้าดูผล ป้องกันด้วยรหัสผ่าน (`ADMIN_PASSWORD`)
+- Supabase (Postgres + RLS) — เขียนผ่าน service role ฝั่ง server, anon อ่านคำตอบคนอื่นไม่ได้
+- React Flow + dagre สำหรับผัง swimlane
+
+## หน้า
+
+- `/` — เลือกว่าคุณคือใคร (combobox ค้นหาได้) จำใน localStorage
+- `/form/[personId]` — กรอกรายการงานของตัวเอง (autosave, ส่งซ้ำแล้ว upsert)
+- `/thanks` — สรุปว่ากรอกไปกี่งาน
+- `/admin` — ป้องกันด้วย `ADMIN_PASSWORD` มี 4 แท็บ:
+  1. ความคืบหน้า — ใครส่งแล้ว/ยัง
+  2. จุดที่ไม่ตรงกัน — reconciliation: จับคู่ได้ / เส้นข้างเดียว (ไม่ตรง vs รออีกฝ่าย) / งานกำพร้า
+  3. ผังที่ประกอบได้ — swimlane ตาม group, เส้นทึบ = ยืนยันสองฝั่ง, เส้นประส้ม = ข้างเดียว
+  4. ภาระงาน — จำนวนงาน/เส้นเข้า-ออก/จุดอนุมัติ ชี้คอขวด
 
 ## Setup
 
-1. ติดตั้ง dependency
-
-   ```bash
-   npm install
-   ```
-
-2. ตั้งค่า environment variables ใน `.env.local` (ดู `.env.local.example`)
-
-   ```
-   NEXT_PUBLIC_SUPABASE_URL=
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=
-   SUPABASE_SERVICE_ROLE_KEY=
-   ADMIN_PASSWORD=
-   ```
-
-   - `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`: จากหน้า Supabase Dashboard → Settings → API
-   - `SUPABASE_SERVICE_ROLE_KEY`: จากหน้าเดียวกัน (secret key, **ห้าม commit / ห้ามส่งให้ browser**) ใช้ฝั่ง server เท่านั้น (API routes รับ submit และหน้า admin)
-   - `ADMIN_PASSWORD`: รหัสผ่านสำหรับเข้าหน้า `/admin`
-
-3. รัน dev server
-
-   ```bash
-   npm run dev
-   ```
-
-   เปิด [http://localhost:3000](http://localhost:3000)
+1. `npm install`
+2. ตั้งค่า `.env.local` (ดู `.env.local.example`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_PASSWORD`
+3. `npm run dev`
 
 ## Database
 
-Table `submissions` และ `steps` ถูกสร้างไว้แล้วบน Supabase project ผ่าน migration RLS เปิด insert แบบ public (anon) แต่ select ทำได้เฉพาะผ่าน service role key ฝั่ง server เท่านั้น
-
-## Deploy
-
-Deploy ขึ้น [Vercel](https://vercel.com/new) แล้วตั้งค่า environment variables ชุดเดียวกับข้างบนในหน้า Project Settings → Environment Variables
+ตาราง `responses`, `tasks`, `task_links` (person หลายค่าต่อ task เก็บเป็นแถวแยกใน `task_links`, `kind` = from/to/approver/rework) สร้างไว้ใน Supabase project ผ่าน migration แล้ว รายชื่อพนักงาน hardcode ใน `lib/staff.ts` ไม่เก็บใน DB
