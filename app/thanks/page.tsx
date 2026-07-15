@@ -6,11 +6,12 @@ export const dynamic = "force-dynamic";
 export default async function ThanksPage({
   searchParams,
 }: {
-  searchParams: Promise<{ person?: string; count?: string }>;
+  searchParams: Promise<{ person?: string; jobs?: string; steps?: string }>;
 }) {
-  const { person, count } = await searchParams;
+  const { person, jobs, steps } = await searchParams;
   const staff = person ? getStaff(person) : undefined;
-  const n = Number(count) || 0;
+  const nJobs = Number(jobs) || 0;
+  const nSteps = Number(steps) || 0;
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-5 py-16 text-center">
@@ -20,7 +21,8 @@ export default async function ThanksPage({
         </div>
         <h1 className="font-disp font-bold text-2xl mb-2">ส่งคำตอบเรียบร้อยแล้ว</h1>
         <p className="text-[var(--muted)] mb-2">
-          ขอบคุณ{staff ? ` ${staff.nick}` : ""} — บันทึกไว้ทั้งหมด <b className="text-[var(--ink)]">{n} งาน</b>
+          ขอบคุณ{staff ? ` ${staff.nick}` : ""} — บันทึกไว้ <b className="text-[var(--ink)]">{nJobs} งาน</b> รวม{" "}
+          <b className="text-[var(--ink)]">{nSteps} ขั้นตอน</b>
         </p>
         <p className="text-[13.5px] text-[var(--faint)] mb-8">
           ระบบจะเอาคำตอบของคุณไปต่อกับของคนอื่นเป็นผังงานอัตโนมัติ ถ้ามีอะไรต้องแก้ กดกลับไปแก้ได้เลย

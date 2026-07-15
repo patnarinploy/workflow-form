@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { loadAndReconcile } from "@/lib/reconcile";
-import { getStaff, staffNick, SPECIAL_LABEL } from "@/lib/staff";
-import { TaskRow, TaskLinkRow, LinkKind } from "@/lib/types";
+import { getStaff, staffNick } from "@/lib/staff";
+import { JobRow, StepRow, StepLinkRow, LinkKind } from "@/lib/types";
 
-function labelLink(l: TaskLinkRow): string {
-  if (l.special) return SPECIAL_LABEL[l.special];
+function linkLabel(l: StepLinkRow): string {
+  if (l.external) return "ลูกค้า/ภายนอก";
   return l.person_id ? staffNick(l.person_id) : "";
 }
 
@@ -13,45 +13,49 @@ export async function GET() {
   const supabase = createServiceClient();
   const { data, result } = await loadAndReconcile(supabase);
 
-  const linksByTask = new Map<string, TaskLinkRow[]>();
+  const linksByStep = new Map<string, StepLinkRow[]>();
   for (const l of data.links) {
-    const arr = linksByTask.get(l.task_id) ?? [];
+    const arr = linksByStep.get(l.step_id) ?? [];
     arr.push(l);
-    linksByTask.set(l.task_id, arr);
+    linksByStep.set(l.step_id, arr);
   }
-  const tasksByResponse = new Map<string, TaskRow[]>();
-  for (const t of data.tasks) {
-    const arr = tasksByResponse.get(t.response_id) ?? [];
-    arr.push(t);
-    tasksByResponse.set(t.response_id, arr);
+  const stepsByJob = new Map<string, StepRow[]>();
+  for (const s of data.steps) {
+    const arr = stepsByJob.get(s.job_id) ?? [];
+    arr.push(s);
+    stepsByJob.set(s.job_id, arr);
   }
-  const kindLabels = (taskId: string, kind: LinkKind) =>
-    (linksByTask.get(taskId) ?? []).filter((l) => l.kind === kind).map(labelLink);
+  const jobsByResponse = new Map<string, JobRow[]>();
+  for (const j of data.jobs) {
+    const arr = jobsByResponse.get(j.response_id) ?? [];
+    arr.push(j);
+    jobsByResponse.set(j.response_id, arr);
+  }
+  const kind = (stepId: string, k: LinkKind) => {
+    const rows = (linksByStep.get(stepId) ?? []).filter((l) => l.kind === k);
+    if (rows.length === 0) return undefined;
+    return { people: rows.map(linkLabel), what: rows.find((r) => r.what)?.what ?? undefined };
+  };
 
   const people = data.responses.map((r) => {
     const staff = getStaff(r.person_id);
-    const tasks = (tasksByResponse.get(r.id) ?? [])
-      .sort((a, b) => a.task_order - b.task_order)
-      .map((t) => ({
-        order: t.task_order,
-        action: t.action,
-        input_desc: t.input_desc,
-        output_desc: t.output_desc,
-        parallel_with: t.parallel_with,
-        from: kindLabels(t.id, "from"),
-        to: kindLabels(t.id, "to"),
-        approver: kindLabels(t.id, "approver"),
-        rework: kindLabels(t.id, "rework"),
+    const jobs = (jobsByResponse.get(r.id) ?? [])
+      .sort((a, b) => a.job_order - b.job_order)
+      .map((j) => ({
+        name: j.name,
+        trigger: j.trigger,
+        frequency: j.frequency,
+        steps: (stepsByJob.get(j.id) ?? [])
+          .sort((a, b) => a.step_order - b.step_order)
+          .map((s) => ({
+            order: s.step_order,
+            action: s.action,
+            waits_for: kind(s.id, "waits_for"),
+            sends_to: kind(s.id, "sends_to"),
+            approver: kind(s.id, "approver"),
+          })),
       }));
-    return {
-      person_id: r.person_id,
-      nick: staff?.nick ?? r.person_id,
-      title: staff?.title,
-      group: staff?.group,
-      blockers: r.blockers,
-      submitted_at: r.updated_at,
-      tasks,
-    };
+    return { person_id: r.person_id, nick: staff?.nick ?? r.person_id, title: staff?.title, group: staff?.group, blockers: r.blockers, submitted_at: r.updated_at, jobs };
   });
 
   const payload = {
@@ -61,7 +65,6 @@ export async function GET() {
       missing: result.missingIds.map(staffNick),
       matched: result.matched.length,
       one_sided: result.oneSided.length,
-      orphans: result.orphans.map((o) => staffNick(o.personId)),
     },
     people,
     edges: result.edges.map((e) => ({

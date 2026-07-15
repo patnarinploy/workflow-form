@@ -1,66 +1,74 @@
 import { SpecialValue } from "./staff";
 
-// In form state, each person/relationship field is an array of "tokens".
-// A token is either a STAFF id (e.g. "tuk") or a special option prefixed with "@"
-// (e.g. "@self_start"). Person ids never start with "@", so this is unambiguous.
-
+// Person/relationship fields hold "tokens": a STAFF id (e.g. "tuk") or a special
+// option prefixed with "@" (e.g. "@external"). Person ids never start with "@".
 export const SPECIAL_PREFIX = "@";
 
 export function specialToken(v: SpecialValue): string {
   return SPECIAL_PREFIX + v;
 }
-
 export function isSpecialToken(token: string): boolean {
   return token.startsWith(SPECIAL_PREFIX);
 }
-
 export function specialOf(token: string): SpecialValue {
   return token.slice(SPECIAL_PREFIX.length) as SpecialValue;
 }
 
-export type LinkKind = "from" | "to" | "approver" | "rework";
+// v3 model: person -> job -> step, with optional per-step links.
+export type LinkKind = "waits_for" | "sends_to" | "approver";
 
-export type Task = {
-  action: string; // ฉันทำอะไร
-  inputDesc: string; // ได้อะไรมาถึงจะเริ่ม
-  from: string[]; // ได้มาจากใคร (persons + self_start/external)
-  outputDesc: string; // ทำเสร็จได้อะไรออกมา
-  to: string[]; // ส่งให้ใครต่อ (persons + ends_here/external)
-  approver: string[]; // ใครอนุมัติ (persons + no_approval)
-  parallelWith: string; // งานนี้ทำพร้อมกับงานอะไร
-  rework: string[]; // ถ้าไม่ผ่านกลับไปแก้กับใคร (persons)
+// A revealed (checkbox-enabled) section on a step.
+export type Reveal = {
+  enabled: boolean;
+  people: string[]; // tokens: staff ids + "@external"
+  what: string; // used by waits_for / sends_to only
+};
+
+export type Step = {
+  action: string; // required
+  waitsFor: Reveal;
+  sendsTo: Reveal;
+  approver: Reveal; // "what" unused
+};
+
+export type Job = {
+  name: string; // required
+  trigger: string; // optional
+  frequency: string; // optional
+  steps: Step[]; // >= 1, each action required
 };
 
 export type FormState = {
   personId: string;
-  tasks: Task[];
+  jobs: Job[];
   blockers: string;
 };
 
-export const emptyTask = (): Task => ({
+export const FREQUENCY_OPTIONS = ["ทุกโปรเจกต์", "รายสัปดาห์", "รายเดือน", "นานๆ ครั้ง"];
+
+export const emptyReveal = (): Reveal => ({ enabled: false, people: [], what: "" });
+
+export const emptyStep = (): Step => ({
   action: "",
-  inputDesc: "",
-  from: [],
-  outputDesc: "",
-  to: [],
-  approver: [],
-  parallelWith: "",
-  rework: [],
+  waitsFor: emptyReveal(),
+  sendsTo: emptyReveal(),
+  approver: emptyReveal(),
+});
+
+export const emptyJob = (): Job => ({
+  name: "",
+  trigger: "",
+  frequency: "",
+  steps: [emptyStep()],
 });
 
 export const emptyForm = (personId: string): FormState => ({
   personId,
-  tasks: [emptyTask()],
+  jobs: [emptyJob()],
   blockers: "",
 });
 
-// Which special options are offered per field.
-export const FROM_SPECIALS: SpecialValue[] = ["self_start", "external"];
-export const TO_SPECIALS: SpecialValue[] = ["ends_here", "external"];
-export const APPROVER_SPECIALS: SpecialValue[] = ["no_approval"];
-export const REWORK_SPECIALS: SpecialValue[] = [];
-
-// ---- DB row shapes (as read back through the service role) ----
+// ---- DB row shapes (read back through the service role) ----
 
 export type ResponseRow = {
   id: string;
@@ -70,20 +78,27 @@ export type ResponseRow = {
   updated_at: string;
 };
 
-export type TaskRow = {
+export type JobRow = {
   id: string;
   response_id: string;
-  task_order: number;
-  action: string;
-  input_desc: string;
-  output_desc: string;
-  parallel_with: string | null;
+  job_order: number;
+  name: string;
+  trigger: string | null;
+  frequency: string | null;
 };
 
-export type TaskLinkRow = {
+export type StepRow = {
   id: string;
-  task_id: string;
+  job_id: string;
+  step_order: number;
+  action: string;
+};
+
+export type StepLinkRow = {
+  id: string;
+  step_id: string;
   kind: LinkKind;
   person_id: string | null;
-  special: SpecialValue | null;
+  external: boolean;
+  what: string | null;
 };
