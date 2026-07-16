@@ -1,11 +1,12 @@
 "use client";
 
-import { PositionSelect } from "./PositionSelect";
+import { PositionSelect, PositionCombobox } from "./PositionSelect";
 import {
   Step,
   WaitsGroup,
   SendsGroup,
   ApproverGroup,
+  Decision,
   WaitItem,
   SendItem,
   emptyWaitItem,
@@ -171,6 +172,88 @@ function ApproverEditor({ group, onChange }: { group: ApproverGroup; onChange: (
   );
 }
 
+// ---- decision (pass/fail) ----
+type Sibling = { id: string; action: string };
+
+function DecisionEditor({
+  decision,
+  onChange,
+  positionId,
+  siblings,
+  selfId,
+}: {
+  decision: Decision;
+  onChange: (d: Decision) => void;
+  positionId: string;
+  siblings: Sibling[];
+  selfId: string;
+}) {
+  const toggle = (v: boolean) =>
+    onChange({ ...decision, enabled: v, decider: v && !decision.decider ? positionId : decision.decider });
+
+  const selectValue = decision.failKind === "step" ? `step:${decision.failStepId}` : decision.failKind === "position" ? "position" : "";
+  const onSelect = (v: string) => {
+    if (v === "") onChange({ ...decision, failKind: "", failStepId: "", failPosition: "" });
+    else if (v === "position") onChange({ ...decision, failKind: "position", failStepId: "" });
+    else onChange({ ...decision, failKind: "step", failStepId: v.slice(5), failPosition: "" });
+  };
+
+  const others = siblings.filter((s) => s.id !== selfId);
+
+  return (
+    <div>
+      <GroupHeader checked={decision.enabled} onToggle={toggle} label="ขั้นตอนนี้มีการตัดสินใจ ผ่าน/ไม่ผ่าน" color="#2E7CD6" />
+      {decision.enabled && (
+        <div className="mt-2 ml-6 flex flex-col gap-2">
+          <div>
+            <label className="block text-[12px] text-[var(--muted)] mb-1">ใครเป็นคนตัดสิน</label>
+            <PositionCombobox
+              value={decision.decider}
+              onChange={(decider) => onChange({ ...decision, decider })}
+              specials={EXTERNAL}
+              placeholder="เลือกผู้ตัดสิน…"
+            />
+          </div>
+          <div>
+            <label className="block text-[12px] text-[var(--muted)] mb-1">ถ้าไม่ผ่าน ไปไหนต่อ</label>
+            <select value={selectValue} onChange={(e) => onSelect(e.target.value)} className={fieldCls}>
+              <option value="">— เลือกปลายทางถ้าไม่ผ่าน —</option>
+              <optgroup label="ย้อนกลับไปขั้นตอนใน job นี้">
+                {others.map((s) => {
+                  const idx = siblings.findIndex((x) => x.id === s.id);
+                  return (
+                    <option key={s.id} value={`step:${s.id}`}>
+                      {idx + 1}. {s.action.trim() || "(ยังไม่ใส่ชื่อ)"}
+                    </option>
+                  );
+                })}
+              </optgroup>
+              <optgroup label="ส่งกลับให้ตำแหน่งอื่น">
+                <option value="position">ส่งกลับให้ตำแหน่งอื่น…</option>
+              </optgroup>
+            </select>
+          </div>
+          {decision.failKind === "position" && (
+            <PositionCombobox
+              value={decision.failPosition}
+              onChange={(failPosition) => onChange({ ...decision, failPosition })}
+              specials={EXTERNAL}
+              placeholder="ส่งกลับให้ตำแหน่งไหน…"
+            />
+          )}
+          <input
+            type="text"
+            value={decision.failReason}
+            placeholder="ไม่ผ่านเพราะอะไรได้บ้าง (ถ้ามี) เช่น ภาพไม่ตรง Direction"
+            onChange={(e) => onChange({ ...decision, failReason: e.target.value })}
+            className={fieldCls}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function StepEditor({
   step,
   number,
@@ -184,6 +267,8 @@ export function StepEditor({
   onMoveDown,
   canMoveUp,
   canMoveDown,
+  positionId,
+  siblings,
 }: {
   step: Step;
   number: number;
@@ -197,6 +282,8 @@ export function StepEditor({
   onMoveDown?: () => void;
   canMoveUp?: boolean;
   canMoveDown?: boolean;
+  positionId: string;
+  siblings: Sibling[];
 }) {
   return (
     <div className="border border-[var(--line)] rounded-[12px] bg-[var(--bg)]/40 p-3">
@@ -225,6 +312,13 @@ export function StepEditor({
             <WaitsEditor group={step.waitsFor} onChange={(waitsFor) => onChange({ ...step, waitsFor })} />
             <SendsEditor group={step.sendsTo} onChange={(sendsTo) => onChange({ ...step, sendsTo })} />
             <ApproverEditor group={step.approver} onChange={(approver) => onChange({ ...step, approver })} />
+            <DecisionEditor
+              decision={step.decision}
+              onChange={(decision) => onChange({ ...step, decision })}
+              positionId={positionId}
+              siblings={siblings}
+              selfId={step.id}
+            />
           </div>
 
           <div className="flex items-center gap-3 mt-2 md:hidden">
