@@ -6,13 +6,16 @@ import {
   FormState,
   Job,
   Step,
+  Decision,
   emptyForm,
   emptyStep,
+  emptyDecision,
   specialToken,
   JobRow,
   StepRow,
   StepLinkRow,
   StepLinkTargetRow,
+  StepDecisionRow,
 } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -47,12 +50,18 @@ export default async function FormPage({
     let steps: StepRow[] = [];
     let links: StepLinkRow[] = [];
     let targets: StepLinkTargetRow[] = [];
+    let decisions: StepDecisionRow[] = [];
     if (jobs.length) {
       const { data: stepRows } = await supabase.from("steps").select("*").in("job_id", jobs.map((j) => j.id));
       steps = (stepRows as StepRow[] | null) ?? [];
       if (steps.length) {
-        const { data: linkRows } = await supabase.from("step_links").select("*").in("step_id", steps.map((s) => s.id));
+        const stepIds = steps.map((s) => s.id);
+        const [{ data: linkRows }, { data: decisionRows }] = await Promise.all([
+          supabase.from("step_links").select("*").in("step_id", stepIds),
+          supabase.from("step_decisions").select("*").in("step_id", stepIds),
+        ]);
         links = (linkRows as StepLinkRow[] | null) ?? [];
+        decisions = (decisionRows as StepDecisionRow[] | null) ?? [];
         if (links.length) {
           const { data: targetRows } = await supabase.from("step_link_targets").select("*").in("link_id", links.map((l) => l.id));
           targets = (targetRows as StepLinkTargetRow[] | null) ?? [];
@@ -72,12 +81,28 @@ export default async function FormPage({
       arr.push(l);
       linksByStep.set(l.step_id, arr);
     }
+    const decisionByStep = new Map<string, StepDecisionRow>();
+    for (const d of decisions) decisionByStep.set(d.step_id, d);
     const stepsByJob = new Map<string, StepRow[]>();
     for (const s of steps) {
       const arr = stepsByJob.get(s.job_id) ?? [];
       arr.push(s);
       stepsByJob.set(s.job_id, arr);
     }
+
+    const buildDecision = (stepId: string): Decision => {
+      const d = decisionByStep.get(stepId);
+      if (!d) return emptyDecision();
+      const failKind: Decision["failKind"] = d.fail_step_id ? "step" : d.fail_position_id || d.fail_external ? "position" : "";
+      return {
+        enabled: true,
+        decider: d.decider_external ? specialToken("external") : d.decider_position_id ?? positionId,
+        failKind,
+        failStepId: d.fail_step_id ?? "",
+        failPosition: d.fail_external ? specialToken("external") : d.fail_position_id ?? "",
+        failReason: d.fail_reason ?? "",
+      };
+    };
 
     const buildStep = (s: StepRow): Step => {
       const ls = (linksByStep.get(s.id) ?? []).slice().sort((a, b) => a.link_order - b.link_order);
@@ -88,10 +113,12 @@ export default async function FormPage({
       const approverPos = ls.filter((l) => l.kind === "approver").flatMap((l) => tokensByLink.get(l.id) ?? []);
       const base = emptyStep();
       return {
+        id: s.id,
         action: s.action,
         waitsFor: waits.length ? { enabled: true, items: waits } : base.waitsFor,
         sendsTo: sends.length ? { enabled: true, items: sends } : base.sendsTo,
         approver: approverPos.length ? { enabled: true, positions: approverPos } : base.approver,
+        decision: buildDecision(s.id),
       };
     };
 
