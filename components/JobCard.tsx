@@ -9,6 +9,7 @@ export type JobFieldRef = (kind: "name" | "step", stepIndex: number, el: HTMLEle
 export function JobCard({
   job,
   number,
+  positionId,
   nameError,
   stepErrors,
   onChange,
@@ -18,6 +19,7 @@ export function JobCard({
 }: {
   job: Job;
   number: number;
+  positionId: string;
   nameError?: boolean;
   stepErrors: Set<number>;
   onChange: (j: Job) => void;
@@ -34,7 +36,23 @@ export function JobCard({
     onChange({ ...job, steps: [...job.steps, emptyStep()] });
   }
   function removeStep(i: number) {
-    onChange({ ...job, steps: job.steps.length > 1 ? job.steps.filter((_, idx) => idx !== i) : job.steps });
+    if (job.steps.length <= 1) return;
+    const removed = job.steps[i];
+    // If another step's fail-target points at this step, warn and clear it (never leave a dangling id).
+    const referenced = job.steps.some(
+      (s, idx) => idx !== i && s.decision.enabled && s.decision.failKind === "step" && s.decision.failStepId === removed.id
+    );
+    if (referenced && !window.confirm("มีขั้นตอนอื่นตั้งค่า “ถ้าไม่ผ่านให้ย้อนกลับมาขั้นตอนนี้” อยู่ ถ้าลบ ระบบจะล้างปลายทางนั้นทิ้ง ยืนยันลบไหม?")) {
+      return;
+    }
+    const next = job.steps
+      .filter((_, idx) => idx !== i)
+      .map((s) =>
+        s.decision.enabled && s.decision.failKind === "step" && s.decision.failStepId === removed.id
+          ? { ...s, decision: { ...s.decision, failKind: "" as const, failStepId: "" } }
+          : s
+      );
+    onChange({ ...job, steps: next });
   }
   function move(from: number, to: number) {
     if (to < 0 || to >= job.steps.length) return;
@@ -111,9 +129,11 @@ export function JobCard({
           <div className="flex flex-col gap-2">
             {job.steps.map((s, i) => (
               <StepEditor
-                key={i}
+                key={s.id}
                 step={s}
                 number={i + 1}
+                positionId={positionId}
+                siblings={job.steps.map((x) => ({ id: x.id, action: x.action }))}
                 actionError={stepErrors.has(i)}
                 onChange={(ns) => setStep(i, ns)}
                 onRemove={() => removeStep(i)}

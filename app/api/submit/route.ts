@@ -58,7 +58,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "บันทึกข้อมูลไม่สำเร็จ" }, { status: 500 });
   }
 
-  // Replace-all: clearing jobs cascades to steps -> step_links -> step_link_targets.
+  // Replace-all: clearing jobs cascades to steps -> step_links -> step_link_targets -> step_decisions.
   const { error: delErr } = await supabase.from("jobs").delete().eq("response_id", response.id);
   if (delErr) {
     return NextResponse.json({ error: "บันทึกข้อมูลไม่สำเร็จ (clear)" }, { status: 500 });
@@ -101,6 +101,18 @@ export async function POST(req: Request) {
   for (const s of insertedSteps as { id: string; job_id: string; step_order: number }[]) {
     stepIdByKey.set(`${s.job_id}:${s.step_order}`, s.id);
   }
+
+  // Map each step's client id -> the real uuid it was assigned, so fail-target
+  // back-references (which point at client ids) can be remapped on save.
+  const realStepIdByClient = new Map<string, string>();
+  jobs.forEach((job, ji) => {
+    const jobId = jobIdByOrder.get(ji + 1);
+    if (!jobId) return;
+    job.steps.forEach((s, si) => {
+      const realId = stepIdByKey.get(`${jobId}:${si + 1}`);
+      if (realId && s.id) realStepIdByClient.set(s.id, realId);
+    });
+  });
 
   const cleanTokens = (tokens: string[]) =>
     (tokens ?? []).filter((t) => isSpecialToken(t) || !!getPosition(t));
@@ -181,6 +193,64 @@ export async function POST(req: Request) {
       if (tErr) {
         return NextResponse.json({ error: "บันทึกปลายทางไม่สำเร็จ" }, { status: 500 });
       }
+    }
+  }
+
+  // step_decisions (pass/fail). The DB requires exactly one fail target per row.
+  const decisionRows: {
+    step_id: string;
+    decider_position_id: string | null;
+    decider_external: boolean;
+    fail_step_id: string | null;
+    fail_position_id: string | null;
+    fail_external: boolean;
+    fail_reason: string | null;
+  }[] = [];
+  jobs.forEach((job, ji) => {
+    const jobId = jobIdByOrder.get(ji + 1);
+    if (!jobId) return;
+    job.steps.forEach((s, si) => {
+      const d = s.decision;
+      if (!d?.enabled) return;
+      const stepId = stepIdByKey.get(`${jobId}:${si + 1}`);
+      if (!stepId) return;
+
+      // decider: null = own position
+      let decider_position_id: string | null = null;
+      let decider_external = false;
+      if (d.decider) {
+        if (isSpecialToken(d.decider)) decider_external = true;
+        else if (getPosition(d.decider) && d.decider !== body.positionId) decider_position_id = d.decider;
+      }
+
+      // fail target: exactly one of the three
+      let fail_step_id: string | null = null;
+      let fail_position_id: string | null = null;
+      let fail_external = false;
+      if (d.failKind === "step" && d.failStepId) {
+        fail_step_id = realStepIdByClient.get(d.failStepId) ?? null;
+      } else if (d.failKind === "position" && d.failPosition) {
+        if (isSpecialToken(d.failPosition)) fail_external = true;
+        else if (getPosition(d.failPosition)) fail_position_id = d.failPosition;
+      }
+      const targetCount = (fail_step_id ? 1 : 0) + (fail_position_id ? 1 : 0) + (fail_external ? 1 : 0);
+      if (targetCount !== 1) return; // skip incomplete decisions (constraint requires exactly one)
+
+      decisionRows.push({
+        step_id: stepId,
+        decider_position_id,
+        decider_external,
+        fail_step_id,
+        fail_position_id,
+        fail_external,
+        fail_reason: d.failReason?.trim() || null,
+      });
+    });
+  });
+  if (decisionRows.length) {
+    const { error: decErr } = await supabase.from("step_decisions").insert(decisionRows);
+    if (decErr) {
+      return NextResponse.json({ error: "บันทึกจุดตัดสินใจไม่สำเร็จ" }, { status: 500 });
     }
   }
 

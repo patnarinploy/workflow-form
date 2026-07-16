@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { loadAndReconcile } from "@/lib/reconcile";
 import { getPosition, positionName } from "@/lib/positions";
-import { JobRow, StepRow, StepLinkRow, StepLinkTargetRow } from "@/lib/types";
+import { JobRow, StepRow, StepLinkRow, StepLinkTargetRow, StepDecisionRow } from "@/lib/types";
 
 export async function GET() {
   const supabase = createServiceClient();
@@ -36,6 +36,28 @@ export async function GET() {
     jobsByResponse.set(j.response_id, arr);
   }
 
+  const stepById = new Map<string, StepRow>();
+  for (const s of data.steps) stepById.set(s.id, s);
+  const decisionByStep = new Map<string, StepDecisionRow>();
+  for (const d of data.decisions) decisionByStep.set(d.step_id, d);
+
+  const decisionPayload = (stepId: string) => {
+    const d = decisionByStep.get(stepId);
+    if (!d) return undefined;
+    const fail = d.fail_step_id
+      ? { back_to_step: stepById.get(d.fail_step_id)?.action ?? d.fail_step_id }
+      : d.fail_external
+      ? { back_to: "ลูกค้า/ภายนอก" }
+      : d.fail_position_id
+      ? { back_to: positionName(d.fail_position_id) }
+      : {};
+    return {
+      decider: d.decider_external ? "ลูกค้า/ภายนอก" : d.decider_position_id ? positionName(d.decider_position_id) : "ตำแหน่งตัวเอง",
+      fail_reason: d.fail_reason ?? null,
+      ...fail,
+    };
+  };
+
   const stepPayload = (s: StepRow) => {
     const ls = (linksByStep.get(s.id) ?? []).slice().sort((a, b) => a.link_order - b.link_order);
     const waits_for = ls
@@ -51,6 +73,7 @@ export async function GET() {
       waits_for: waits_for.length ? waits_for : undefined,
       sends_to: sends_to.length ? sends_to : undefined,
       approver: approver.length ? approver : undefined,
+      decision: decisionPayload(s.id),
     };
   };
 
