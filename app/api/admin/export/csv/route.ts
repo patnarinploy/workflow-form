@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { loadAndReconcile } from "@/lib/reconcile";
-import { staffNick } from "@/lib/staff";
+import { positionName } from "@/lib/positions";
 
 function csvEscape(value: unknown): string {
   const str = value === null || value === undefined ? "" : String(value);
@@ -17,9 +17,9 @@ export async function GET() {
 
   const header = [
     "from_id",
-    "from_nick",
+    "from_name",
     "to_id",
-    "to_nick",
+    "to_name",
     "status",
     "sender_asserted",
     "receiver_asserted",
@@ -27,9 +27,9 @@ export async function GET() {
 
   const rows = result.edges.map((e) => [
     e.from,
-    staffNick(e.from),
+    positionName(e.from),
     e.to,
-    staffNick(e.to),
+    positionName(e.to),
     e.status,
     e.senderAsserted ? "yes" : "no",
     e.receiverAsserted ? "yes" : "no",

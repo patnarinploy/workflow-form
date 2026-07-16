@@ -10,7 +10,7 @@ export default async function AdminPage() {
 
   const blockers = data.responses
     .filter((r) => r.blockers && r.blockers.trim())
-    .map((r) => ({ personId: r.person_id, text: r.blockers as string }));
+    .map((r) => ({ positionId: r.position_id, text: r.blockers as string }));
 
   return <AdminDashboard result={result} blockers={blockers} />;
 }

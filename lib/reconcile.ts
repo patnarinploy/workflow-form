@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ResponseRow, JobRow, StepRow, StepLinkRow } from "./types";
-import { STAFF } from "./staff";
+import { POSITIONS, memberCount } from "./positions";
 
 export type RawData = {
   responses: ResponseRow[];
@@ -12,19 +12,21 @@ export type RawData = {
 export type EdgeStatus = "matched" | "mismatch" | "pending";
 
 export type PairEdge = {
-  from: string; // sender person id
-  to: string; // receiver person id
+  from: string; // sender position id
+  to: string; // receiver position id
   status: EdgeStatus;
   senderAsserted: boolean;
   receiverAsserted: boolean;
-  senderContext: string[]; // "job — step (what)" from the sender side
-  receiverContext: string[]; // from the receiver side
+  senderContext: string[];
+  receiverContext: string[];
 };
 
 export type Workload = {
-  personId: string;
+  positionId: string;
+  members: number;
   jobCount: number;
   stepCount: number;
+  stepsPerHead: number;
   inbound: number;
   outbound: number;
   approverCount: number;
@@ -35,24 +37,25 @@ export type FlowStep = {
   id: string;
   order: number;
   action: string;
-  sendsTo: string[]; // person ids (external excluded)
+  sendsTo: string[]; // position ids (external excluded)
   sendsExternal: boolean;
-  waitsFor: string[]; // person ids
+  waitsFor: string[];
   waitsExternal: boolean;
-  approvers: string[]; // person ids
+  approvers: string[];
   approverExternal: boolean;
 };
 export type FlowJob = { id: string; name: string; order: number; steps: FlowStep[] };
-export type FlowPerson = { personId: string; jobs: FlowJob[] };
+export type FlowPosition = { positionId: string; jobs: FlowJob[] };
 
 export type Reconciliation = {
   submittedIds: string[];
   missingIds: string[];
+  filledBy: Record<string, string>;
   edges: PairEdge[];
   matched: PairEdge[];
   oneSided: PairEdge[];
   workload: Workload[];
-  structure: FlowPerson[];
+  structure: FlowPosition[];
 };
 
 type EdgeAccum = {
@@ -64,10 +67,14 @@ type EdgeAccum = {
 
 export function reconcile(data: RawData): Reconciliation {
   const ownerByResponse = new Map<string, string>();
-  for (const r of data.responses) ownerByResponse.set(r.id, r.person_id);
+  const filledBy: Record<string, string> = {};
+  for (const r of data.responses) {
+    ownerByResponse.set(r.id, r.position_id);
+    if (r.filled_by) filledBy[r.position_id] = r.filled_by;
+  }
 
   const jobById = new Map<string, JobRow>();
-  const jobOwner = new Map<string, string>(); // job_id -> person
+  const jobOwner = new Map<string, string>();
   for (const j of data.jobs) {
     jobById.set(j.id, j);
     const owner = ownerByResponse.get(j.response_id);
@@ -83,7 +90,7 @@ export function reconcile(data: RawData): Reconciliation {
     stepMeta.set(s.id, { owner, jobName: job.name, action: s.action });
   }
 
-  const submittedIds = data.responses.map((r) => r.person_id);
+  const submittedIds = data.responses.map((r) => r.position_id);
   const submittedSet = new Set(submittedIds);
 
   const edges = new Map<string, EdgeAccum>();
@@ -107,16 +114,16 @@ export function reconcile(data: RawData): Reconciliation {
     if (!meta) continue;
     const owner = meta.owner;
 
-    if (link.kind === "sends_to" && link.person_id) {
-      const e = getEdge(owner, link.person_id);
+    if (link.kind === "sends_to" && link.position_id) {
+      const e = getEdge(owner, link.position_id);
       e.senderAsserted = true;
       e.senderContext.add(ctx(meta, link.what));
-    } else if (link.kind === "waits_for" && link.person_id) {
-      const e = getEdge(link.person_id, owner);
+    } else if (link.kind === "waits_for" && link.position_id) {
+      const e = getEdge(link.position_id, owner);
       e.receiverAsserted = true;
       e.receiverContext.add(ctx(meta, link.what));
-    } else if (link.kind === "approver" && link.person_id) {
-      approverCount.set(link.person_id, (approverCount.get(link.person_id) ?? 0) + 1);
+    } else if (link.kind === "approver" && link.position_id) {
+      approverCount.set(link.position_id, (approverCount.get(link.position_id) ?? 0) + 1);
     }
   }
 
@@ -157,22 +164,23 @@ export function reconcile(data: RawData): Reconciliation {
     outbound.set(e.from, (outbound.get(e.from) ?? 0) + 1);
     inbound.set(e.to, (inbound.get(e.to) ?? 0) + 1);
   }
-  const involved = new Set<string>([
-    ...submittedIds,
-    ...inbound.keys(),
-    ...outbound.keys(),
-    ...approverCount.keys(),
-  ]);
+  const involved = new Set<string>([...submittedIds, ...inbound.keys(), ...outbound.keys(), ...approverCount.keys()]);
   const workload: Workload[] = [...involved]
-    .filter((id) => STAFF.some((s) => s.id === id))
-    .map((id) => ({
-      personId: id,
-      jobCount: jobCount.get(id) ?? 0,
-      stepCount: stepCount.get(id) ?? 0,
-      inbound: inbound.get(id) ?? 0,
-      outbound: outbound.get(id) ?? 0,
-      approverCount: approverCount.get(id) ?? 0,
-    }))
+    .filter((id) => POSITIONS.some((p) => p.id === id))
+    .map((id) => {
+      const steps = stepCount.get(id) ?? 0;
+      const heads = memberCount(id) || 1;
+      return {
+        positionId: id,
+        members: memberCount(id),
+        jobCount: jobCount.get(id) ?? 0,
+        stepCount: steps,
+        stepsPerHead: Math.round((steps / heads) * 10) / 10,
+        inbound: inbound.get(id) ?? 0,
+        outbound: outbound.get(id) ?? 0,
+        approverCount: approverCount.get(id) ?? 0,
+      };
+    })
     .sort((a, b) => b.stepCount - a.stepCount || b.inbound - a.inbound);
 
   // structure for the flow
@@ -194,8 +202,8 @@ export function reconcile(data: RawData): Reconciliation {
     arr.push(j);
     jobsByResponse.set(j.response_id, arr);
   }
-  const structure: FlowPerson[] = data.responses.map((r) => ({
-    personId: r.person_id,
+  const structure: FlowPosition[] = data.responses.map((r) => ({
+    positionId: r.position_id,
     jobs: (jobsByResponse.get(r.id) ?? [])
       .sort((a, b) => a.job_order - b.job_order)
       .map((j) => ({
@@ -206,28 +214,29 @@ export function reconcile(data: RawData): Reconciliation {
           .sort((a, b) => a.step_order - b.step_order)
           .map((s) => {
             const ls = linksByStep.get(s.id) ?? [];
-            const persons = (kind: string) => ls.filter((l) => l.kind === kind && l.person_id).map((l) => l.person_id as string);
+            const positions = (kind: string) => ls.filter((l) => l.kind === kind && l.position_id).map((l) => l.position_id as string);
             const hasExt = (kind: string) => ls.some((l) => l.kind === kind && l.external);
             return {
               id: s.id,
               order: s.step_order,
               action: s.action,
-              sendsTo: persons("sends_to"),
+              sendsTo: positions("sends_to"),
               sendsExternal: hasExt("sends_to"),
-              waitsFor: persons("waits_for"),
+              waitsFor: positions("waits_for"),
               waitsExternal: hasExt("waits_for"),
-              approvers: persons("approver"),
+              approvers: positions("approver"),
               approverExternal: hasExt("approver"),
             };
           }),
       })),
   }));
 
-  const missingIds = STAFF.filter((s) => !submittedSet.has(s.id)).map((s) => s.id);
+  const missingIds = POSITIONS.filter((p) => !submittedSet.has(p.id)).map((p) => p.id);
 
   return {
     submittedIds,
     missingIds,
+    filledBy,
     edges: allEdges,
     matched: allEdges.filter((e) => e.status === "matched"),
     oneSided: allEdges.filter((e) => e.status !== "matched"),

@@ -1,7 +1,7 @@
-import { SpecialValue } from "./staff";
+import { SpecialValue } from "./positions";
 
-// Person/relationship fields hold "tokens": a STAFF id (e.g. "tuk") or a special
-// option prefixed with "@" (e.g. "@external"). Person ids never start with "@".
+// Relationship fields hold "tokens": a POSITION id (e.g. "producer") or a special
+// option prefixed with "@" (e.g. "@external"). Position ids never start with "@".
 export const SPECIAL_PREFIX = "@";
 
 export function specialToken(v: SpecialValue): string {
@@ -14,13 +14,12 @@ export function specialOf(token: string): SpecialValue {
   return token.slice(SPECIAL_PREFIX.length) as SpecialValue;
 }
 
-// v3 model: person -> job -> step, with optional per-step links.
+// v4 model: position -> job -> step, with optional per-step links.
 export type LinkKind = "waits_for" | "sends_to" | "approver";
 
-// A revealed (checkbox-enabled) section on a step.
 export type Reveal = {
   enabled: boolean;
-  people: string[]; // tokens: staff ids + "@external"
+  positions: string[]; // tokens: position ids + "@external"
   what: string; // used by waits_for / sends_to only
 };
 
@@ -39,14 +38,15 @@ export type Job = {
 };
 
 export type FormState = {
-  personId: string;
+  positionId: string;
+  filledBy: string;
   jobs: Job[];
   blockers: string;
 };
 
 export const FREQUENCY_OPTIONS = ["ทุกโปรเจกต์", "รายสัปดาห์", "รายเดือน", "นานๆ ครั้ง"];
 
-export const emptyReveal = (): Reveal => ({ enabled: false, people: [], what: "" });
+export const emptyReveal = (): Reveal => ({ enabled: false, positions: [], what: "" });
 
 export const emptyStep = (): Step => ({
   action: "",
@@ -62,8 +62,9 @@ export const emptyJob = (): Job => ({
   steps: [emptyStep()],
 });
 
-export const emptyForm = (personId: string): FormState => ({
-  personId,
+export const emptyForm = (positionId: string, filledBy = ""): FormState => ({
+  positionId,
+  filledBy,
   jobs: [emptyJob()],
   blockers: "",
 });
@@ -72,7 +73,8 @@ export const emptyForm = (personId: string): FormState => ({
 
 export type ResponseRow = {
   id: string;
-  person_id: string;
+  position_id: string;
+  filled_by: string | null;
   blockers: string | null;
   created_at: string;
   updated_at: string;
@@ -98,7 +100,7 @@ export type StepLinkRow = {
   id: string;
   step_id: string;
   kind: LinkKind;
-  person_id: string | null;
+  position_id: string | null;
   external: boolean;
   what: string | null;
 };
