@@ -1,56 +1,168 @@
 "use client";
 
 import { PositionSelect } from "./PositionSelect";
-import { Step, Reveal } from "@/lib/types";
+import {
+  Step,
+  WaitsGroup,
+  SendsGroup,
+  ApproverGroup,
+  WaitItem,
+  SendItem,
+  emptyWaitItem,
+  emptySendItem,
+} from "@/lib/types";
 
 const EXTERNAL: ["external"] = ["external"];
 
-function RevealRow({
-  reveal,
-  onChange,
+function GroupHeader({
+  checked,
+  onToggle,
   label,
   color,
-  whatLabel,
-  whatPlaceholder,
-  posPlaceholder,
 }: {
-  reveal: Reveal;
-  onChange: (r: Reveal) => void;
+  checked: boolean;
+  onToggle: (v: boolean) => void;
   label: string;
   color: string;
-  whatLabel?: string;
-  whatPlaceholder?: string;
-  posPlaceholder: string;
 }) {
   return (
+    <label className="flex items-center gap-2 text-[13px] text-[var(--ink)] cursor-pointer select-none">
+      <input type="checkbox" checked={checked} onChange={(e) => onToggle(e.target.checked)} className="w-4 h-4 accent-[var(--accent)]" />
+      <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+      {label}
+    </label>
+  );
+}
+
+const fieldCls =
+  "w-full text-[13.5px] bg-[var(--field)] border border-[var(--field-bd)] rounded-[8px] px-2.5 py-2 outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-line)]";
+
+function ItemCard({ onRemove, children }: { onRemove?: () => void; children: React.ReactNode }) {
+  return (
+    <div className="relative border border-[var(--line)] rounded-[10px] bg-[var(--surface)] p-2.5 flex flex-col gap-2">
+      {onRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label="ลบรายการ"
+          className="absolute top-1.5 right-2 text-[var(--faint)] hover:text-[var(--danger)] text-base leading-none"
+        >
+          ×
+        </button>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function addBtn(label: string, onClick: () => void) {
+  return (
+    <button type="button" onClick={onClick} className="self-start text-[12.5px] font-semibold text-[var(--accent)]">
+      {label}
+    </button>
+  );
+}
+
+// ---- waits ----
+function WaitsEditor({ group, onChange }: { group: WaitsGroup; onChange: (g: WaitsGroup) => void }) {
+  const setItem = (i: number, item: WaitItem) => {
+    const items = group.items.slice();
+    items[i] = item;
+    onChange({ ...group, items });
+  };
+  const toggle = (v: boolean) => onChange({ enabled: v, items: v && group.items.length === 0 ? [emptyWaitItem()] : group.items });
+  return (
     <div>
-      <label className="flex items-center gap-2 text-[13px] text-[var(--ink)] cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={reveal.enabled}
-          onChange={(e) => onChange({ ...reveal, enabled: e.target.checked })}
-          className="w-4 h-4 accent-[var(--accent)]"
-        />
-        <span className="w-2 h-2 rounded-full" style={{ background: color }} />
-        {label}
-      </label>
-      {reveal.enabled && (
+      <GroupHeader checked={group.enabled} onToggle={toggle} label="ต้องรอของจากตำแหน่งอื่นก่อน" color="#B65418" />
+      {group.enabled && (
         <div className="mt-2 ml-6 flex flex-col gap-2">
-          <PositionSelect
-            value={reveal.positions}
-            onChange={(positions) => onChange({ ...reveal, positions })}
-            specials={EXTERNAL}
-            placeholder={posPlaceholder}
-          />
-          {whatLabel && (
-            <input
-              type="text"
-              value={reveal.what}
-              placeholder={whatPlaceholder}
-              onChange={(e) => onChange({ ...reveal, what: e.target.value })}
-              className="w-full text-[13.5px] bg-[var(--field)] border border-[var(--field-bd)] rounded-[8px] px-2.5 py-2 outline-none focus:border-[var(--accent)]"
-            />
-          )}
+          {group.items.map((item, i) => (
+            <ItemCard key={i} onRemove={group.items.length > 1 ? () => onChange({ ...group, items: group.items.filter((_, j) => j !== i) }) : undefined}>
+              <input
+                type="text"
+                value={item.what}
+                placeholder="รออะไร เช่น ไฟล์กราฟิก, บทที่อนุมัติ"
+                onChange={(e) => setItem(i, { ...item, what: e.target.value })}
+                className={fieldCls}
+              />
+              <PositionSelect
+                value={item.positions}
+                onChange={(positions) => setItem(i, { ...item, positions })}
+                specials={EXTERNAL}
+                placeholder="รอของจากตำแหน่งไหน…"
+              />
+            </ItemCard>
+          ))}
+          {addBtn("+ เพิ่มของที่ต้องรออีกอย่าง", () => onChange({ ...group, items: [...group.items, emptyWaitItem()] }))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- sends ----
+function SendsEditor({ group, onChange }: { group: SendsGroup; onChange: (g: SendsGroup) => void }) {
+  const setItem = (i: number, item: SendItem) => {
+    const items = group.items.slice();
+    items[i] = item;
+    onChange({ ...group, items });
+  };
+  const toggle = (v: boolean) => onChange({ enabled: v, items: v && group.items.length === 0 ? [emptySendItem()] : group.items });
+  return (
+    <div>
+      <GroupHeader checked={group.enabled} onToggle={toggle} label="ส่งให้ตำแหน่งอื่นต่อ" color="#128A64" />
+      {group.enabled && (
+        <div className="mt-2 ml-6 flex flex-col gap-2">
+          {group.items.map((item, i) => (
+            <ItemCard key={i} onRemove={group.items.length > 1 ? () => onChange({ ...group, items: group.items.filter((_, j) => j !== i) }) : undefined}>
+              <input
+                type="text"
+                value={item.what}
+                placeholder="ส่งอะไร เช่น รายชื่อนักแสดง, ไฟล์ตัดต่อ *"
+                onChange={(e) => setItem(i, { ...item, what: e.target.value })}
+                className={fieldCls}
+              />
+              <PositionSelect
+                value={item.positions}
+                onChange={(positions) => setItem(i, { ...item, positions })}
+                specials={EXTERNAL}
+                placeholder="ส่งให้ตำแหน่งไหน…"
+              />
+              <label className="flex items-center gap-2 text-[12.5px] text-[var(--muted)] cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={item.conditional}
+                  onChange={(e) => setItem(i, { ...item, conditional: e.target.checked, condition: e.target.checked ? item.condition : "" })}
+                  className="w-3.5 h-3.5 accent-[var(--accent)]"
+                />
+                ส่งแบบมีเงื่อนไข
+              </label>
+              {item.conditional && (
+                <input
+                  type="text"
+                  value={item.condition}
+                  placeholder="เงื่อนไขคืออะไร เช่น ถ้า QC ผ่าน"
+                  onChange={(e) => setItem(i, { ...item, condition: e.target.value })}
+                  className={fieldCls}
+                />
+              )}
+            </ItemCard>
+          ))}
+          {addBtn("+ เพิ่มการส่งอีกอย่าง", () => onChange({ ...group, items: [...group.items, emptySendItem()] }))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- approver ----
+function ApproverEditor({ group, onChange }: { group: ApproverGroup; onChange: (g: ApproverGroup) => void }) {
+  return (
+    <div>
+      <GroupHeader checked={group.enabled} onToggle={(v) => onChange({ ...group, enabled: v })} label="ต้องขออนุมัติ" color="#6C7A73" />
+      {group.enabled && (
+        <div className="mt-2 ml-6">
+          <PositionSelect value={group.positions} onChange={(positions) => onChange({ ...group, positions })} specials={EXTERNAL} placeholder="ตำแหน่งไหนอนุมัติ…" />
         </div>
       )}
     </div>
@@ -108,31 +220,9 @@ export function StepEditor({
           />
 
           <div className="flex flex-col gap-2 mt-2.5">
-            <RevealRow
-              reveal={step.waitsFor}
-              onChange={(r) => onChange({ ...step, waitsFor: r })}
-              label="ต้องรอของจากตำแหน่งอื่นก่อน"
-              color="#B65418"
-              whatLabel="รออะไร"
-              whatPlaceholder="รออะไร เช่น ไฟล์กราฟิก, บทที่อนุมัติ"
-              posPlaceholder="รอของจากตำแหน่งไหน…"
-            />
-            <RevealRow
-              reveal={step.sendsTo}
-              onChange={(r) => onChange({ ...step, sendsTo: r })}
-              label="ส่งให้ตำแหน่งอื่นต่อ"
-              color="#128A64"
-              whatLabel="ส่งอะไร"
-              whatPlaceholder="ส่งอะไร เช่น รายชื่อนักแสดง, ไฟล์ตัดต่อ"
-              posPlaceholder="ส่งให้ตำแหน่งไหน…"
-            />
-            <RevealRow
-              reveal={step.approver}
-              onChange={(r) => onChange({ ...step, approver: r })}
-              label="ต้องขออนุมัติ"
-              color="#6C7A73"
-              posPlaceholder="ตำแหน่งไหนอนุมัติ…"
-            />
+            <WaitsEditor group={step.waitsFor} onChange={(waitsFor) => onChange({ ...step, waitsFor })} />
+            <SendsEditor group={step.sendsTo} onChange={(sendsTo) => onChange({ ...step, sendsTo })} />
+            <ApproverEditor group={step.approver} onChange={(approver) => onChange({ ...step, approver })} />
           </div>
 
           <div className="flex items-center gap-3 mt-2 md:hidden">

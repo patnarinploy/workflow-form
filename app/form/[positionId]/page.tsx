@@ -5,25 +5,17 @@ import { FormClient } from "@/components/FormClient";
 import {
   FormState,
   Job,
-  Reveal,
+  Step,
   emptyForm,
-  emptyReveal,
+  emptyStep,
   specialToken,
   JobRow,
   StepRow,
   StepLinkRow,
-  LinkKind,
+  StepLinkTargetRow,
 } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-
-function buildReveal(links: StepLinkRow[], kind: LinkKind): Reveal {
-  const rows = links.filter((l) => l.kind === kind);
-  if (rows.length === 0) return emptyReveal();
-  const positions = rows.map((l) => (l.external ? specialToken("external") : (l.position_id ?? ""))).filter(Boolean);
-  const what = rows.find((l) => l.what)?.what ?? "";
-  return { enabled: true, positions, what };
-}
 
 export default async function FormPage({
   params,
@@ -54,15 +46,26 @@ export default async function FormPage({
     const jobs = (jobRows as JobRow[] | null) ?? [];
     let steps: StepRow[] = [];
     let links: StepLinkRow[] = [];
+    let targets: StepLinkTargetRow[] = [];
     if (jobs.length) {
       const { data: stepRows } = await supabase.from("steps").select("*").in("job_id", jobs.map((j) => j.id));
       steps = (stepRows as StepRow[] | null) ?? [];
       if (steps.length) {
         const { data: linkRows } = await supabase.from("step_links").select("*").in("step_id", steps.map((s) => s.id));
         links = (linkRows as StepLinkRow[] | null) ?? [];
+        if (links.length) {
+          const { data: targetRows } = await supabase.from("step_link_targets").select("*").in("link_id", links.map((l) => l.id));
+          targets = (targetRows as StepLinkTargetRow[] | null) ?? [];
+        }
       }
     }
 
+    const tokensByLink = new Map<string, string[]>();
+    for (const t of targets) {
+      const arr = tokensByLink.get(t.link_id) ?? [];
+      arr.push(t.external ? specialToken("external") : (t.position_id ?? ""));
+      tokensByLink.set(t.link_id, arr.filter(Boolean));
+    }
     const linksByStep = new Map<string, StepLinkRow[]>();
     for (const l of links) {
       const arr = linksByStep.get(l.step_id) ?? [];
@@ -76,23 +79,29 @@ export default async function FormPage({
       stepsByJob.set(s.job_id, arr);
     }
 
+    const buildStep = (s: StepRow): Step => {
+      const ls = (linksByStep.get(s.id) ?? []).slice().sort((a, b) => a.link_order - b.link_order);
+      const waits = ls.filter((l) => l.kind === "waits_for").map((l) => ({ what: l.what ?? "", positions: tokensByLink.get(l.id) ?? [] }));
+      const sends = ls
+        .filter((l) => l.kind === "sends_to")
+        .map((l) => ({ what: l.what ?? "", positions: tokensByLink.get(l.id) ?? [], conditional: !!l.conditional, condition: l.condition ?? "" }));
+      const approverPos = ls.filter((l) => l.kind === "approver").flatMap((l) => tokensByLink.get(l.id) ?? []);
+      const base = emptyStep();
+      return {
+        action: s.action,
+        waitsFor: waits.length ? { enabled: true, items: waits } : base.waitsFor,
+        sendsTo: sends.length ? { enabled: true, items: sends } : base.sendsTo,
+        approver: approverPos.length ? { enabled: true, positions: approverPos } : base.approver,
+      };
+    };
+
     const builtJobs: Job[] = jobs
       .sort((a, b) => a.job_order - b.job_order)
       .map((j) => ({
         name: j.name,
         trigger: j.trigger ?? "",
         frequency: j.frequency ?? "",
-        steps: (stepsByJob.get(j.id) ?? [])
-          .sort((a, b) => a.step_order - b.step_order)
-          .map((s) => {
-            const sl = linksByStep.get(s.id) ?? [];
-            return {
-              action: s.action,
-              waitsFor: buildReveal(sl, "waits_for"),
-              sendsTo: buildReveal(sl, "sends_to"),
-              approver: buildReveal(sl, "approver"),
-            };
-          }),
+        steps: (stepsByJob.get(j.id) ?? []).sort((a, b) => a.step_order - b.step_order).map(buildStep),
       }));
 
     initial = {

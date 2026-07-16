@@ -2,16 +2,20 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { loadAndReconcile } from "@/lib/reconcile";
 import { getPosition, positionName } from "@/lib/positions";
-import { JobRow, StepRow, StepLinkRow, LinkKind } from "@/lib/types";
-
-function linkLabel(l: StepLinkRow): string {
-  if (l.external) return "ลูกค้า/ภายนอก";
-  return l.position_id ? positionName(l.position_id) : "";
-}
+import { JobRow, StepRow, StepLinkRow, StepLinkTargetRow } from "@/lib/types";
 
 export async function GET() {
   const supabase = createServiceClient();
   const { data, result } = await loadAndReconcile(supabase);
+
+  const targetsByLink = new Map<string, StepLinkTargetRow[]>();
+  for (const t of data.targets) {
+    const arr = targetsByLink.get(t.link_id) ?? [];
+    arr.push(t);
+    targetsByLink.set(t.link_id, arr);
+  }
+  const targetLabels = (linkId: string): string[] =>
+    (targetsByLink.get(linkId) ?? []).map((t) => (t.external ? "ลูกค้า/ภายนอก" : t.position_id ? positionName(t.position_id) : "")).filter(Boolean);
 
   const linksByStep = new Map<string, StepLinkRow[]>();
   for (const l of data.links) {
@@ -31,10 +35,23 @@ export async function GET() {
     arr.push(j);
     jobsByResponse.set(j.response_id, arr);
   }
-  const kind = (stepId: string, k: LinkKind) => {
-    const rows = (linksByStep.get(stepId) ?? []).filter((l) => l.kind === k);
-    if (rows.length === 0) return undefined;
-    return { positions: rows.map(linkLabel), what: rows.find((r) => r.what)?.what ?? undefined };
+
+  const stepPayload = (s: StepRow) => {
+    const ls = (linksByStep.get(s.id) ?? []).slice().sort((a, b) => a.link_order - b.link_order);
+    const waits_for = ls
+      .filter((l) => l.kind === "waits_for")
+      .map((l) => ({ what: l.what ?? null, from: targetLabels(l.id) }));
+    const sends_to = ls
+      .filter((l) => l.kind === "sends_to")
+      .map((l) => ({ what: l.what ?? null, conditional: !!l.conditional, condition: l.condition ?? null, to: targetLabels(l.id) }));
+    const approver = ls.filter((l) => l.kind === "approver").flatMap((l) => targetLabels(l.id));
+    return {
+      order: s.step_order,
+      action: s.action,
+      waits_for: waits_for.length ? waits_for : undefined,
+      sends_to: sends_to.length ? sends_to : undefined,
+      approver: approver.length ? approver : undefined,
+    };
   };
 
   const positions = data.responses.map((r) => {
@@ -45,15 +62,7 @@ export async function GET() {
         name: j.name,
         trigger: j.trigger,
         frequency: j.frequency,
-        steps: (stepsByJob.get(j.id) ?? [])
-          .sort((a, b) => a.step_order - b.step_order)
-          .map((s) => ({
-            order: s.step_order,
-            action: s.action,
-            waits_for: kind(s.id, "waits_for"),
-            sends_to: kind(s.id, "sends_to"),
-            approver: kind(s.id, "approver"),
-          })),
+        steps: (stepsByJob.get(j.id) ?? []).sort((a, b) => a.step_order - b.step_order).map(stepPayload),
       }));
     return {
       position_id: r.position_id,
@@ -84,6 +93,8 @@ export async function GET() {
       status: e.status,
       sender_asserted: e.senderAsserted,
       receiver_asserted: e.receiverAsserted,
+      sender_context: e.senderContext,
+      receiver_context: e.receiverContext,
     })),
   };
 
