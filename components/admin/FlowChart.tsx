@@ -22,7 +22,7 @@ const GROUP_COLOR: Record<PositionGroup, string> = {
   Operation: "#B6841C",
 };
 
-function truncate(s: string, n = 48) {
+function truncate(s: string, n = 40) {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
@@ -38,8 +38,6 @@ export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edg
     });
 
   const { nodes, rfEdges, empty } = useMemo(() => {
-    const groupOf = (id: string) => getPosition(id)?.group;
-
     const byId = new Map(structure.map((p) => [p.positionId, p]));
     const lanePositions = POSITIONS.filter((p) => byId.has(p.id) && byId.get(p.id)!.jobs.length > 0 && enabled.has(p.group)).map((p) => p.id);
     const laneSet = new Set(lanePositions);
@@ -55,10 +53,13 @@ export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edg
     lanePositions.forEach((pid, i) => laneX.set(pid, i * (LANE_W + LANE_GAP)));
 
     const outNodes: Node[] = [];
+    // absolute top-left position of each rendered step node (for placing diamond nodes)
+    const stepAbs = new Map<string, { x: number; y: number }>();
+
     const receiverStepId = (q: string, p: string): string | null => {
       const qp = byId.get(q);
       if (!qp) return null;
-      for (const j of qp.jobs) for (const s of j.steps) if (s.waitsFor.includes(p)) return s.id;
+      for (const j of qp.jobs) for (const s of j.steps) if (s.waits.some((w) => w.targets.includes(p))) return s.id;
       return null;
     };
 
@@ -127,6 +128,8 @@ export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edg
         job.steps.forEach((s, si) => {
           const hasApprover = s.approvers.length > 0 || s.approverExternal;
           const approverNames = [...s.approvers.map(positionName), ...(s.approverExternal ? ["ลูกค้า/ภายนอก"] : [])].join(", ");
+          const stepTop = y + JOB_HEAD_H + si * STEP_H;
+          stepAbs.set(s.id, { x: x + 12, y: stepTop });
           outNodes.push({
             id: `step-${s.id}`,
             parentId: `job-${job.id}`,
@@ -169,41 +172,107 @@ export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edg
 
     const outEdges: RFEdge[] = [];
     const seen = new Set<string>();
-    const pushEdge = (source: string, target: string, kind: "seq" | "matched" | "oneSided") => {
-      const id = `${kind}:${source}->${target}`;
+    type Kind = "seq" | "matched" | "oneSided" | "branch";
+    const strokeOf = (kind: Kind) =>
+      kind === "seq" ? "#1C2A25" : kind === "matched" ? "#128A64" : kind === "branch" ? "#6C7A73" : "#B65418";
+    const pushEdge = (source: string, target: string, kind: Kind, label?: string, idSuffix = "") => {
+      const id = `${kind}:${source}->${target}${idSuffix}`;
       if (seen.has(id)) return;
       seen.add(id);
-      const stroke = kind === "seq" ? "#1C2A25" : kind === "matched" ? "#128A64" : "#B65418";
+      const stroke = strokeOf(kind);
       outEdges.push({
         id,
         source,
         target,
-        style: { stroke, strokeWidth: kind === "seq" ? 1.4 : 2, strokeDasharray: kind === "oneSided" ? "6 4" : undefined },
+        label: label ? truncate(label, 22) : undefined,
+        labelStyle: { fontSize: 10, fill: "#1C2A25", fontWeight: 600 },
+        labelBgStyle: { fill: "#F4F6F4", fillOpacity: 0.9 },
+        labelBgPadding: [4, 2],
+        labelBgBorderRadius: 4,
+        style: {
+          stroke,
+          strokeWidth: kind === "seq" ? 1.4 : 2,
+          strokeDasharray: kind === "oneSided" ? "6 4" : undefined,
+        },
         markerEnd: { type: MarkerType.ArrowClosed, color: stroke, width: 14, height: 14 },
         zIndex: 5,
       });
     };
 
+    let diamondSeq = 0;
+    const addDiamond = (nearStepId: string): string | null => {
+      const pos = stepAbs.get(nearStepId);
+      if (!pos) return null;
+      const id = `diamond-${nearStepId}-${diamondSeq++}`;
+      outNodes.push({
+        id,
+        position: { x: pos.x + (LANE_W - 24) - 10, y: pos.y + (STEP_H - STEP_GAP) / 2 - 10 },
+        data: { label: "" },
+        draggable: false,
+        selectable: false,
+        connectable: false,
+        zIndex: 6,
+        style: {
+          width: 20,
+          height: 20,
+          background: "#fff",
+          border: "2px solid #B65418",
+          transform: "rotate(45deg)",
+          borderRadius: 3,
+        },
+      });
+      return id;
+    };
+
     for (const pid of lanePositions) {
       const posData = byId.get(pid)!;
       for (const job of posData.jobs) {
+        // sequence within job
         for (let i = 0; i < job.steps.length - 1; i++) {
           pushEdge(`step-${job.steps[i].id}`, `step-${job.steps[i + 1].id}`, "seq");
         }
         for (const s of job.steps) {
-          for (const q of s.sendsTo) {
-            if (!laneSet.has(q)) continue;
-            const pe = edgeMap.get(`${pid}|${q}`);
-            const status = pe?.status ?? "matched";
-            const rid = receiverStepId(q, pid);
-            const target = rid ? `step-${rid}` : `header-${q}`;
-            pushEdge(`step-${s.id}`, target, status === "matched" ? "matched" : "oneSided");
-          }
-          for (const xid of s.waitsFor) {
-            if (!laneSet.has(xid)) continue;
-            const pe = edgeMap.get(`${xid}|${pid}`);
-            if (pe && pe.status === "mismatch" && !pe.senderAsserted) {
-              pushEdge(`header-${xid}`, `step-${s.id}`, "oneSided");
+          // sends (line items)
+          s.sends.forEach((send, sendIdx) => {
+            const targets = send.targets.filter((q) => laneSet.has(q));
+            if (targets.length === 0) return;
+            const statusFor = (q: string) => edgeMap.get(`${pid}|${q}`)?.status ?? "matched";
+            const targetNode = (q: string) => {
+              const rid = receiverStepId(q, pid);
+              return rid ? `step-${rid}` : `header-${q}`;
+            };
+            if (send.conditional) {
+              // branch point: step -> diamond -> each target (labeled with condition)
+              const dId = addDiamond(s.id);
+              const condLabel = send.condition || send.what;
+              if (dId) {
+                pushEdge(`step-${s.id}`, dId, "branch", send.what || undefined, `-c${sendIdx}`);
+                targets.forEach((q) => {
+                  const kind = statusFor(q) === "matched" ? "matched" : "oneSided";
+                  pushEdge(dId, targetNode(q), kind, condLabel || undefined, `-c${sendIdx}-${q}`);
+                });
+              } else {
+                targets.forEach((q) => {
+                  const kind = statusFor(q) === "matched" ? "matched" : "oneSided";
+                  pushEdge(`step-${s.id}`, targetNode(q), kind, condLabel || undefined, `-c${sendIdx}-${q}`);
+                });
+              }
+            } else {
+              // same item to (possibly) many positions: branch from one point, same label
+              targets.forEach((q) => {
+                const kind = statusFor(q) === "matched" ? "matched" : "oneSided";
+                pushEdge(`step-${s.id}`, targetNode(q), kind, send.what || undefined, `-s${sendIdx}-${q}`);
+              });
+            }
+          });
+          // waits the other side never acknowledged (one-sided, but they DID submit)
+          for (const w of s.waits) {
+            for (const xid of w.targets) {
+              if (!laneSet.has(xid)) continue;
+              const pe = edgeMap.get(`${xid}|${pid}`);
+              if (pe && pe.status === "mismatch" && !pe.senderAsserted) {
+                pushEdge(`header-${xid}`, `step-${s.id}`, "oneSided", w.what || undefined, `-w-${xid}`);
+              }
             }
           }
         }
@@ -233,6 +302,7 @@ export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edg
         <span className="flex items-center gap-1.5"><span className="w-6 h-0.5 bg-[#1C2A25]" /> ลำดับใน job</span>
         <span className="flex items-center gap-1.5"><span className="w-6 h-0.5 bg-[#128A64]" /> ส่งงาน (ยืนยันสองฝั่ง)</span>
         <span className="flex items-center gap-1.5"><span className="w-6 h-0 border-t-2 border-dashed border-[#B65418]" /> ส่งงาน (ฝั่งเดียว)</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 border-2 border-[#B65418] rotate-45 rounded-sm" /> ทางแยกตามเงื่อนไข</span>
         <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 border-2 border-[#128A64] rounded-sm" /> 🔒 ต้องอนุมัติ</span>
       </div>
 
