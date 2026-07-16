@@ -172,9 +172,19 @@ export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edg
 
     const outEdges: RFEdge[] = [];
     const seen = new Set<string>();
-    type Kind = "seq" | "matched" | "oneSided" | "branch";
+    type Kind = "seq" | "matched" | "oneSided" | "branch" | "decision" | "fail";
     const strokeOf = (kind: Kind) =>
-      kind === "seq" ? "#1C2A25" : kind === "matched" ? "#128A64" : kind === "branch" ? "#6C7A73" : "#B65418";
+      kind === "seq"
+        ? "#1C2A25"
+        : kind === "matched"
+        ? "#128A64"
+        : kind === "branch"
+        ? "#6C7A73"
+        : kind === "decision"
+        ? "#2E7CD6"
+        : kind === "fail"
+        ? "#D14343"
+        : "#B65418";
     const pushEdge = (source: string, target: string, kind: Kind, label?: string, idSuffix = "") => {
       const id = `${kind}:${source}->${target}${idSuffix}`;
       if (seen.has(id)) return;
@@ -217,6 +227,30 @@ export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edg
           height: 20,
           background: "#fff",
           border: "2px solid #B65418",
+          transform: "rotate(45deg)",
+          borderRadius: 3,
+        },
+      });
+      return id;
+    };
+
+    const addDecisionDiamond = (nearStepId: string): string | null => {
+      const pos = stepAbs.get(nearStepId);
+      if (!pos) return null;
+      const id = `decision-${nearStepId}-${diamondSeq++}`;
+      outNodes.push({
+        id,
+        position: { x: pos.x - 26, y: pos.y + (STEP_H - STEP_GAP) / 2 - 10 },
+        data: { label: "" },
+        draggable: false,
+        selectable: false,
+        connectable: false,
+        zIndex: 6,
+        style: {
+          width: 20,
+          height: 20,
+          background: "#fff",
+          border: "2px solid #2E7CD6",
           transform: "rotate(45deg)",
           borderRadius: 3,
         },
@@ -275,6 +309,26 @@ export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edg
               }
             }
           }
+          // decision (pass/fail): diamond + red "ไม่ผ่าน" back-edge to the fail target
+          if (s.decision) {
+            const d = s.decision;
+            let failNode: string | null = null;
+            if (d.failStepId) failNode = `step-${d.failStepId}`;
+            else if (d.failPosition && laneSet.has(d.failPosition)) failNode = `header-${d.failPosition}`;
+            const dId = addDecisionDiamond(s.id);
+            if (dId) {
+              const deciderLabel = d.deciderExternal
+                ? "ลูกค้า/ภายนอก"
+                : d.decider && d.decider !== pid
+                ? positionName(d.decider)
+                : "";
+              pushEdge(`step-${s.id}`, dId, "decision", deciderLabel ? `ตัดสิน: ${deciderLabel}` : "ตัดสิน", `-dec`);
+              if (failNode) {
+                const failLabel = d.failReason ? `ไม่ผ่าน (${d.failReason})` : "ไม่ผ่าน";
+                pushEdge(dId, failNode, "fail", failLabel, `-fail`);
+              }
+            }
+          }
         }
       }
     }
@@ -303,6 +357,8 @@ export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edg
         <span className="flex items-center gap-1.5"><span className="w-6 h-0.5 bg-[#128A64]" /> ส่งงาน (ยืนยันสองฝั่ง)</span>
         <span className="flex items-center gap-1.5"><span className="w-6 h-0 border-t-2 border-dashed border-[#B65418]" /> ส่งงาน (ฝั่งเดียว)</span>
         <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 border-2 border-[#B65418] rotate-45 rounded-sm" /> ทางแยกตามเงื่อนไข</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 border-2 border-[#2E7CD6] rotate-45 rounded-sm" /> จุดตัดสินใจ</span>
+        <span className="flex items-center gap-1.5"><span className="w-6 h-0.5 bg-[#D14343]" /> เส้นไม่ผ่าน (ย้อนกลับ)</span>
         <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 border-2 border-[#128A64] rounded-sm" /> 🔒 ต้องอนุมัติ</span>
       </div>
 

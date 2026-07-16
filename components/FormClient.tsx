@@ -160,6 +160,7 @@ export function FormClient({
               key={ji}
               job={job}
               number={ji + 1}
+              positionId={position.id}
               nameError={errors[ji]?.name}
               stepErrors={errors[ji]?.steps ?? new Set()}
               onChange={(j) => setJob(ji, j)}

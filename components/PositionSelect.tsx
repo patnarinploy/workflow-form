@@ -214,11 +214,13 @@ export function PositionCombobox({
   onChange,
   placeholder,
   error,
+  specials = [],
 }: {
   value: string;
   onChange: (id: string) => void;
   placeholder?: string;
   error?: boolean;
+  specials?: SpecialValue[];
 }) {
   return (
     <PositionSelect
@@ -227,6 +229,7 @@ export function PositionCombobox({
       onChange={(next) => onChange(next[0] ?? "")}
       placeholder={placeholder}
       error={error}
+      specials={specials}
     />
   );
 }
