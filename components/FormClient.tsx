@@ -2,28 +2,29 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Staff } from "@/lib/staff";
+import { Position } from "@/lib/positions";
 import { FormState, Job, emptyJob } from "@/lib/types";
 import { JobCard } from "./JobCard";
 
-function draftKey(personId: string) {
-  return `wf-form-v3-${personId}`;
+function draftKey(positionId: string) {
+  return `wf-form-v4-${positionId}`;
 }
 
 type JobErrors = { name: boolean; steps: Set<number> };
 
 export function FormClient({
-  staff,
+  position,
   initial,
-  alreadySubmitted,
+  existing,
 }: {
-  staff: Staff;
+  position: Position;
   initial: FormState;
-  alreadySubmitted: boolean;
+  existing: { filledBy: string | null; updatedAt: string } | null;
 }) {
   const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>(initial.jobs);
   const [blockers, setBlockers] = useState(initial.blockers);
+  const [filledBy] = useState(initial.filledBy);
   const [loaded, setLoaded] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<number, JobErrors>>({});
@@ -36,7 +37,7 @@ export function FormClient({
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(draftKey(staff.id));
+      const raw = localStorage.getItem(draftKey(position.id));
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed?.jobs) && parsed.jobs.length) {
@@ -53,21 +54,21 @@ export function FormClient({
         }
       }
     } catch {
-      // ignore corrupt draft
+      // ignore
     }
     setLoaded(true);
-  }, [staff.id]);
+  }, [position.id]);
 
   useEffect(() => {
     if (!loaded) return;
     const timer = setInterval(() => {
       const now = new Date();
       const stamp = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-      localStorage.setItem(draftKey(staff.id), JSON.stringify({ jobs, blockers, savedAt: stamp }));
+      localStorage.setItem(draftKey(position.id), JSON.stringify({ jobs, blockers, savedAt: stamp }));
       setLastSaved(stamp);
     }, 2000);
     return () => clearInterval(timer);
-  }, [jobs, blockers, loaded, staff.id]);
+  }, [jobs, blockers, loaded, position.id]);
 
   function setJob(i: number, j: Job) {
     setJobs((prev) => prev.map((x, idx) => (idx === i ? j : x)));
@@ -114,15 +115,15 @@ export function FormClient({
       const res = await fetch("/api/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ personId: staff.id, jobs, blockers }),
+        body: JSON.stringify({ positionId: position.id, filledBy, jobs, blockers }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || "ส่งข้อมูลไม่สำเร็จ");
       }
-      localStorage.removeItem(draftKey(staff.id));
+      localStorage.removeItem(draftKey(position.id));
       const stepTotal = jobs.reduce((n, j) => n + j.steps.length, 0);
-      router.push(`/thanks?person=${staff.id}&jobs=${jobs.length}&steps=${stepTotal}`);
+      router.push(`/thanks?pos=${position.id}&jobs=${jobs.length}&steps=${stepTotal}`);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "ส่งข้อมูลไม่สำเร็จ กรุณาลองใหม่");
     } finally {
@@ -132,23 +133,23 @@ export function FormClient({
 
   return (
     <div className="max-w-[760px] mx-auto px-5 py-8">
-      <a href="/" className="text-[13px] text-[var(--muted)] hover:text-[var(--ink)]">← เปลี่ยนคน</a>
+      <a href="/" className="text-[13px] text-[var(--muted)] hover:text-[var(--ink)]">← เปลี่ยนตำแหน่ง</a>
 
       <div className="mt-3 mb-1 flex items-baseline gap-2 flex-wrap">
-        <h1 className="font-disp font-bold text-[26px] leading-tight">{staff.nick}</h1>
-        <span className="text-[15px] text-[var(--muted)]">{staff.title}</span>
+        <h1 className="font-disp font-bold text-[24px] leading-tight">{position.name}</h1>
+        <span className="text-[13px] text-[var(--faint)]">{position.group}</span>
       </div>
-      <div className="text-[13px] text-[var(--faint)] mb-4">{staff.dept}</div>
+      <div className="text-[13px] text-[var(--muted)] mb-4">สมาชิก: {position.members.join(", ")}</div>
 
-      {alreadySubmitted && (
-        <div className="bg-[var(--accent-soft)] border border-[var(--accent-line)] rounded-[12px] px-4 py-2.5 text-[13px] text-[#0F5F47] mb-4">
-          คุณเคยส่งคำตอบแล้ว — แก้ไขแล้วกดส่งอีกครั้งได้เลย ระบบจะอัปเดตให้ (ไม่สร้างซ้ำ)
+      {existing && (
+        <div className="bg-[#FBF3E9] border border-[#E9CFA0] rounded-[12px] px-4 py-2.5 text-[13px] text-[#8A5A1C] mb-4">
+          ตำแหน่งนี้ {existing.filledBy ? `(${existing.filledBy}) ` : ""}กรอกไว้เมื่อ {new Date(existing.updatedAt).toLocaleString("th-TH")} — คุณกำลังแก้ของเดิม
         </div>
       )}
 
       <div className="bg-[#F0F4F2] border border-[var(--line)] rounded-[12px] px-4 py-3 text-[13.5px] text-[var(--muted)] mb-5 leading-relaxed">
-        กรอกเฉพาะ<b className="text-[var(--ink)] font-semibold">งานประจำที่คุณทำทุกโปรเจกต์</b> ไม่ต้องเอางานจรที่นานๆ ทำที
-        <br />ไม่ต้องรู้ภาพรวมของทีม กรอกแค่งานตัวเอง ระบบจะต่อผังให้เอง ช่องส่งต่อ/อนุมัติกรอกเฉพาะขั้นตอนที่มีจริง (ติ๊กเปิดเอา)
+        กรอก<b className="text-[var(--ink)] font-semibold">ในนามตำแหน่งนี้</b> ไม่ใช่ในนามตัวคุณเอง ถ้าตำแหน่งนี้มีหลายคน ให้กรอกงานที่ทุกคนในตำแหน่งทำเหมือนกัน
+        <br />เอาเฉพาะงานประจำที่ทำทุกโปรเจกต์ ไม่ต้องเอางานจรที่นานๆ ทำที ระบบจะต่อผังให้เอง (ช่องส่งต่อ/อนุมัติติ๊กเปิดเฉพาะที่มีจริง)
       </div>
 
       <form onSubmit={handleSubmit}>
@@ -158,7 +159,6 @@ export function FormClient({
               key={ji}
               job={job}
               number={ji + 1}
-              personId={staff.id}
               nameError={errors[ji]?.name}
               stepErrors={errors[ji]?.steps ?? new Set()}
               onChange={(j) => setJob(ji, j)}
@@ -181,7 +181,7 @@ export function FormClient({
 
         <div className="mt-6">
           <label className="block text-[12.5px] font-semibold text-[var(--muted)] mb-1.5">
-            มีอะไรที่ติดขัดประจำในงานคุณไหม <span className="text-[var(--faint)] font-normal">(ถ้ามี)</span>
+            มีอะไรที่ติดขัดประจำในงานตำแหน่งนี้ไหม <span className="text-[var(--faint)] font-normal">(ถ้ามี)</span>
           </label>
           <textarea
             rows={3}

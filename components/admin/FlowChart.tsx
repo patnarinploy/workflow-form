@@ -3,33 +3,33 @@
 import { useMemo, useState } from "react";
 import { ReactFlow, Background, Controls, MarkerType, Position, type Node, type Edge as RFEdge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { FlowPerson, PairEdge } from "@/lib/reconcile";
-import { getStaff, GROUP_ORDER, GROUP_LABEL, StaffGroup, staffNick, STAFF } from "@/lib/staff";
+import { FlowPosition, PairEdge } from "@/lib/reconcile";
+import { getPosition, GROUP_ORDER, GROUP_LABEL, PositionGroup, positionName, POSITIONS } from "@/lib/positions";
 
-const LANE_W = 240;
+const LANE_W = 250;
 const LANE_GAP = 44;
-const HEADER_H = 44;
+const HEADER_H = 58;
 const JOB_HEAD_H = 30;
 const STEP_H = 58;
 const STEP_GAP = 8;
 const JOB_PAD_BOTTOM = 12;
 const JOB_GAP = 18;
 
-const GROUP_COLOR: Record<StaffGroup, string> = {
+const GROUP_COLOR: Record<PositionGroup, string> = {
   Executive: "#7C5CBF",
   Commercial: "#128A64",
   Production: "#2E7CD6",
   Operation: "#B6841C",
 };
 
-function truncate(s: string, n = 46) {
+function truncate(s: string, n = 48) {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
-export function FlowChart({ structure, edges }: { structure: FlowPerson[]; edges: PairEdge[] }) {
-  const [enabled, setEnabled] = useState<Set<StaffGroup>>(new Set(GROUP_ORDER));
+export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edges: PairEdge[] }) {
+  const [enabled, setEnabled] = useState<Set<PositionGroup>>(new Set(GROUP_ORDER));
 
-  const toggleGroup = (g: StaffGroup) =>
+  const toggleGroup = (g: PositionGroup) =>
     setEnabled((prev) => {
       const next = new Set(prev);
       if (next.has(g)) next.delete(g);
@@ -38,13 +38,13 @@ export function FlowChart({ structure, edges }: { structure: FlowPerson[]; edges
     });
 
   const { nodes, rfEdges, empty } = useMemo(() => {
-    const groupOf = (id: string) => getStaff(id)?.group;
+    const groupOf = (id: string) => getPosition(id)?.group;
 
-    const byId = new Map(structure.map((p) => [p.personId, p]));
-    const lanePeople = STAFF.filter((s) => byId.has(s.id) && (byId.get(s.id)!.jobs.length > 0) && enabled.has(s.group)).map((s) => s.id);
-    const laneSet = new Set(lanePeople);
+    const byId = new Map(structure.map((p) => [p.positionId, p]));
+    const lanePositions = POSITIONS.filter((p) => byId.has(p.id) && byId.get(p.id)!.jobs.length > 0 && enabled.has(p.group)).map((p) => p.id);
+    const laneSet = new Set(lanePositions);
 
-    if (lanePeople.length === 0) {
+    if (lanePositions.length === 0) {
       return { nodes: [] as Node[], rfEdges: [] as RFEdge[], empty: true };
     }
 
@@ -52,7 +52,7 @@ export function FlowChart({ structure, edges }: { structure: FlowPerson[]; edges
     for (const e of edges) edgeMap.set(`${e.from}|${e.to}`, e);
 
     const laneX = new Map<string, number>();
-    lanePeople.forEach((pid, i) => laneX.set(pid, i * (LANE_W + LANE_GAP)));
+    lanePositions.forEach((pid, i) => laneX.set(pid, i * (LANE_W + LANE_GAP)));
 
     const outNodes: Node[] = [];
     const receiverStepId = (q: string, p: string): string | null => {
@@ -62,16 +62,23 @@ export function FlowChart({ structure, edges }: { structure: FlowPerson[]; edges
       return null;
     };
 
-    for (const pid of lanePeople) {
-      const person = byId.get(pid)!;
+    for (const pid of lanePositions) {
+      const posData = byId.get(pid)!;
+      const pos = getPosition(pid)!;
       const x = laneX.get(pid)!;
-      const grp = groupOf(pid)!;
-      const color = GROUP_COLOR[grp];
+      const color = GROUP_COLOR[pos.group];
 
       outNodes.push({
         id: `header-${pid}`,
         position: { x, y: 0 },
-        data: { label: staffNick(pid) },
+        data: {
+          label: (
+            <div style={{ textAlign: "center", width: "100%", padding: "0 6px" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.15 }}>{truncate(pos.name, 34)}</div>
+              <div style={{ fontSize: 10.5, fontWeight: 500, opacity: 0.9, marginTop: 1 }}>{truncate(pos.members.join(", "), 40)}</div>
+            </div>
+          ),
+        },
         draggable: false,
         selectable: false,
         connectable: false,
@@ -84,8 +91,6 @@ export function FlowChart({ structure, edges }: { structure: FlowPerson[]; edges
           color: "#fff",
           border: "none",
           borderRadius: 10,
-          fontSize: 14,
-          fontWeight: 700,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -93,12 +98,12 @@ export function FlowChart({ structure, edges }: { structure: FlowPerson[]; edges
       });
 
       let y = HEADER_H + 16;
-      for (const job of person.jobs) {
+      for (const job of posData.jobs) {
         const jobHeight = JOB_HEAD_H + job.steps.length * STEP_H + JOB_PAD_BOTTOM;
         outNodes.push({
           id: `job-${job.id}`,
           position: { x, y },
-          data: { label: truncate(job.name, 30) },
+          data: { label: truncate(job.name, 32) },
           draggable: false,
           selectable: false,
           connectable: false,
@@ -121,7 +126,7 @@ export function FlowChart({ structure, edges }: { structure: FlowPerson[]; edges
 
         job.steps.forEach((s, si) => {
           const hasApprover = s.approvers.length > 0 || s.approverExternal;
-          const approverNames = [...s.approvers.map(staffNick), ...(s.approverExternal ? ["ลูกค้า/ภายนอก"] : [])].join(", ");
+          const approverNames = [...s.approvers.map(positionName), ...(s.approverExternal ? ["ลูกค้า/ภายนอก"] : [])].join(", ");
           outNodes.push({
             id: `step-${s.id}`,
             parentId: `job-${job.id}`,
@@ -134,7 +139,7 @@ export function FlowChart({ structure, edges }: { structure: FlowPerson[]; edges
                     {si + 1}. {truncate(s.action)}
                   </div>
                   {hasApprover && (
-                    <div style={{ fontSize: 10.5, color: "#128A64", marginTop: 2 }}>🔒 อนุมัติ: {approverNames}</div>
+                    <div style={{ fontSize: 10.5, color: "#128A64", marginTop: 2 }}>🔒 อนุมัติ: {truncate(approverNames, 34)}</div>
                   )}
                 </div>
               ),
@@ -179,9 +184,9 @@ export function FlowChart({ structure, edges }: { structure: FlowPerson[]; edges
       });
     };
 
-    for (const pid of lanePeople) {
-      const person = byId.get(pid)!;
-      for (const job of person.jobs) {
+    for (const pid of lanePositions) {
+      const posData = byId.get(pid)!;
+      for (const job of posData.jobs) {
         for (let i = 0; i < job.steps.length - 1; i++) {
           pushEdge(`step-${job.steps[i].id}`, `step-${job.steps[i + 1].id}`, "seq");
         }
@@ -234,7 +239,7 @@ export function FlowChart({ structure, edges }: { structure: FlowPerson[]; edges
       <div className="h-[640px] bg-[var(--surface)] border border-[var(--line)] rounded-[16px] overflow-hidden">
         {empty ? (
           <div className="h-full flex items-center justify-center text-[13.5px] text-[var(--faint)] px-6 text-center">
-            ยังไม่มีใครกรอก หรือกลุ่มที่เลือกยังไม่มีข้อมูล — ลองเปิดกลุ่มเพิ่ม
+            ยังไม่มีตำแหน่งไหนกรอก หรือกลุ่มที่เลือกยังไม่มีข้อมูล — ลองเปิดกลุ่มเพิ่ม
           </div>
         ) : (
           <ReactFlow nodes={nodes} edges={rfEdges} fitView minZoom={0.05} proOptions={{ hideAttribution: true }}>

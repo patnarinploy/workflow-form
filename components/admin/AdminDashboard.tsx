@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Reconciliation, PairEdge } from "@/lib/reconcile";
-import { STAFF, staffNick, getStaff } from "@/lib/staff";
+import { POSITIONS, positionName, getPosition } from "@/lib/positions";
 import { FlowChart } from "./FlowChart";
 import { LogoutButton } from "@/app/admin/LogoutButton";
 
@@ -20,7 +20,7 @@ export function AdminDashboard({
   blockers,
 }: {
   result: Reconciliation;
-  blockers: { personId: string; text: string }[];
+  blockers: { positionId: string; text: string }[];
 }) {
   const [tab, setTab] = useState<Tab>("progress");
   const mismatchCount = result.oneSided.filter((e) => e.status === "mismatch").length;
@@ -31,7 +31,7 @@ export function AdminDashboard({
         <div>
           <h1 className="font-disp font-bold text-2xl">Admin · Workflow</h1>
           <p className="text-[13px] text-[var(--muted)] mt-0.5">
-            True CJ Creations — ส่งแล้ว {result.submittedIds.length}/{STAFF.length} คน
+            True CJ Creations — ส่งแล้ว {result.submittedIds.length}/{POSITIONS.length} ตำแหน่ง
           </p>
         </div>
         <LogoutButton />
@@ -73,14 +73,14 @@ export function AdminDashboard({
 
 /* ---------------- Progress ---------------- */
 
-function ProgressTab({ result, blockers }: { result: Reconciliation; blockers: { personId: string; text: string }[] }) {
-  const pct = Math.round((result.submittedIds.length / STAFF.length) * 100);
+function ProgressTab({ result, blockers }: { result: Reconciliation; blockers: { positionId: string; text: string }[] }) {
+  const pct = Math.round((result.submittedIds.length / POSITIONS.length) * 100);
   const submitted = new Set(result.submittedIds);
   return (
     <div>
       <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[16px] p-5 mb-5">
         <div className="flex justify-between items-baseline mb-2">
-          <span className="font-semibold">กรอกแล้ว {result.submittedIds.length} จาก {STAFF.length} คน</span>
+          <span className="font-semibold">กรอกแล้ว {result.submittedIds.length} จาก {POSITIONS.length} ตำแหน่ง</span>
           <span className="font-disp font-bold text-xl text-[var(--accent)]">{pct}%</span>
         </div>
         <div className="h-2.5 rounded-full bg-[var(--line)] overflow-hidden">
@@ -90,13 +90,13 @@ function ProgressTab({ result, blockers }: { result: Reconciliation; blockers: {
       <div className="grid gap-4 md:grid-cols-2">
         <Panel title={`ยังไม่ได้กรอก (${result.missingIds.length})`}>
           {result.missingIds.length === 0 ? (
-            <p className="text-[13px] text-[var(--accent)]">ครบทุกคนแล้ว 🎉</p>
+            <p className="text-[13px] text-[var(--accent)]">ครบทุกตำแหน่งแล้ว 🎉</p>
           ) : (
             <ul className="flex flex-col gap-1.5">
               {result.missingIds.map((id) => (
                 <li key={id} className="text-[13.5px]">
-                  <span className="font-medium">{staffNick(id)}</span>
-                  <span className="text-[var(--faint)] text-[12px]"> — {getStaff(id)?.title}</span>
+                  <span className="font-medium">{positionName(id)}</span>
+                  <span className="text-[var(--faint)] text-[12px]"> — {getPosition(id)?.members.join(", ")}</span>
                 </li>
               ))}
             </ul>
@@ -104,11 +104,14 @@ function ProgressTab({ result, blockers }: { result: Reconciliation; blockers: {
         </Panel>
         <Panel title={`กรอกแล้ว (${result.submittedIds.length})`}>
           {result.submittedIds.length === 0 ? (
-            <p className="text-[13px] text-[var(--faint)]">ยังไม่มีใครกรอก</p>
+            <p className="text-[13px] text-[var(--faint)]">ยังไม่มีตำแหน่งไหนกรอก</p>
           ) : (
-            <ul className="flex flex-wrap gap-1.5">
-              {STAFF.filter((s) => submitted.has(s.id)).map((s) => (
-                <li key={s.id} className="text-[12.5px] bg-[var(--accent-soft)] text-[#0F5F47] rounded-full px-2.5 py-0.5">{s.nick}</li>
+            <ul className="flex flex-col gap-1.5">
+              {POSITIONS.filter((p) => submitted.has(p.id)).map((p) => (
+                <li key={p.id} className="text-[13.5px]">
+                  <span className="font-medium">{p.name}</span>
+                  {result.filledBy[p.id] && <span className="text-[var(--faint)] text-[12px]"> — โดย {result.filledBy[p.id]}</span>}
+                </li>
               ))}
             </ul>
           )}
@@ -119,8 +122,8 @@ function ProgressTab({ result, blockers }: { result: Reconciliation; blockers: {
           <Panel title={`สิ่งที่ติดขัด (${blockers.length})`}>
             <ul className="flex flex-col gap-2.5">
               {blockers.map((b) => (
-                <li key={b.personId} className="text-[13.5px]">
-                  <span className="font-semibold">{staffNick(b.personId)}:</span>{" "}
+                <li key={b.positionId} className="text-[13.5px]">
+                  <span className="font-semibold">{positionName(b.positionId)}:</span>{" "}
                   <span className="text-[var(--muted)]">{b.text}</span>
                 </li>
               ))}
@@ -139,10 +142,10 @@ function MismatchTab({ result }: { result: Reconciliation }) {
   const pending = result.oneSided.filter((e) => e.status === "pending");
   return (
     <div className="flex flex-col gap-5">
-      <Section title={`เข้าใจไม่ตรงกัน (${mismatches.length})`} desc="สองคนกรอกแล้วทั้งคู่ แต่พูดถึงการส่งงานไม่ตรง — ควรคุยให้ตรง" color="#B65418">
+      <Section title={`เข้าใจไม่ตรงกัน (${mismatches.length})`} desc="สองตำแหน่งกรอกแล้วทั้งคู่ แต่พูดถึงการส่งงานไม่ตรง — ควรคุยให้ตรง" color="#B65418">
         {mismatches.length === 0 ? <Empty text="ไม่มีเส้นที่ขัดกัน" /> : mismatches.map((e, i) => <EdgeItem key={i} edge={e} />)}
       </Section>
-      <Section title={`รออีกฝ่ายกรอก (${pending.length})`} desc="ฝ่ายหนึ่งระบุการส่งงานแล้ว แต่อีกฝ่ายยังไม่ได้กรอก (ยังไม่ใช่ความผิด)" color="#6C7A73">
+      <Section title={`รออีกตำแหน่งกรอก (${pending.length})`} desc="ตำแหน่งหนึ่งระบุการส่งงานแล้ว แต่อีกตำแหน่งยังไม่ได้กรอก (ยังไม่ใช่ความผิด)" color="#6C7A73">
         {pending.length === 0 ? <Empty text="ไม่มีเส้นที่ค้างรอ" /> : pending.map((e, i) => <EdgeItem key={i} edge={e} />)}
       </Section>
       <Section title={`จับคู่ได้แล้ว (${result.matched.length})`} desc="ทั้งผู้ส่งและผู้รับยืนยันตรงกัน" color="#128A64">
@@ -159,29 +162,29 @@ function EdgeItem({ edge }: { edge: PairEdge }) {
     <div className="border border-[var(--line)] rounded-[10px] overflow-hidden">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-left hover:bg-[var(--bg)]">
         <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
-        <span className="text-[13.5px] font-medium">{staffNick(edge.from)}</span>
+        <span className="text-[13px] font-medium">{positionName(edge.from)}</span>
         <span className="text-[var(--faint)]">→</span>
-        <span className="text-[13.5px] font-medium">{staffNick(edge.to)}</span>
-        <span className="ml-auto text-[11px] text-[var(--faint)]">
+        <span className="text-[13px] font-medium">{positionName(edge.to)}</span>
+        <span className="ml-auto text-[11px] text-[var(--faint)] shrink-0">
           {edge.senderAsserted ? "ผู้ส่ง✓" : "ผู้ส่ง✗"} · {edge.receiverAsserted ? "ผู้รับ✓" : "ผู้รับ✗"}
         </span>
       </button>
       {open && (
         <div className="px-3.5 pb-3 pt-1 text-[12.5px] bg-[var(--bg)]/40 flex flex-col gap-2">
           <div>
-            <div className="text-[var(--faint)] mb-0.5">{staffNick(edge.from)} (ผู้ส่ง) บอกว่า:</div>
+            <div className="text-[var(--faint)] mb-0.5">{positionName(edge.from)} (ผู้ส่ง) บอกว่า:</div>
             {edge.senderContext.length ? (
               <ul className="list-disc pl-5 text-[var(--ink)]">{edge.senderContext.map((t, i) => <li key={i}>{t}</li>)}</ul>
             ) : (
-              <span className="text-[var(--danger)]">ไม่ได้ระบุว่าส่งให้ {staffNick(edge.to)}</span>
+              <span className="text-[var(--danger)]">ไม่ได้ระบุว่าส่งให้ {positionName(edge.to)}</span>
             )}
           </div>
           <div>
-            <div className="text-[var(--faint)] mb-0.5">{staffNick(edge.to)} (ผู้รับ) บอกว่า:</div>
+            <div className="text-[var(--faint)] mb-0.5">{positionName(edge.to)} (ผู้รับ) บอกว่า:</div>
             {edge.receiverContext.length ? (
               <ul className="list-disc pl-5 text-[var(--ink)]">{edge.receiverContext.map((t, i) => <li key={i}>{t}</li>)}</ul>
             ) : (
-              <span className="text-[var(--danger)]">ไม่ได้ระบุว่ารับจาก {staffNick(edge.from)}</span>
+              <span className="text-[var(--danger)]">ไม่ได้ระบุว่ารับจาก {positionName(edge.from)}</span>
             )}
           </div>
         </div>
@@ -193,37 +196,40 @@ function EdgeItem({ edge }: { edge: PairEdge }) {
 /* ---------------- Workload ---------------- */
 
 function WorkloadTab({ result }: { result: Reconciliation }) {
-  const maxInbound = Math.max(0, ...result.workload.map((w) => w.inbound));
+  const maxPerHead = Math.max(0, ...result.workload.map((w) => w.stepsPerHead));
   const maxApprover = Math.max(0, ...result.workload.map((w) => w.approverCount));
   if (result.workload.length === 0) return <Empty text="ยังไม่มีข้อมูลภาระงาน" />;
   return (
     <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[16px] overflow-x-auto">
-      <table className="w-full text-[13.5px] border-collapse min-w-[620px]">
+      <table className="w-full text-[13.5px] border-collapse min-w-[720px]">
         <thead>
           <tr className="text-left text-[var(--faint)] text-xs border-b border-[var(--line)]">
-            <th className="px-4 py-3 font-semibold">คน</th>
+            <th className="px-4 py-3 font-semibold">ตำแหน่ง</th>
+            <th className="px-4 py-3 font-semibold text-center">จำนวนคน</th>
             <th className="px-4 py-3 font-semibold text-center">งาน (job)</th>
             <th className="px-4 py-3 font-semibold text-center">ขั้นตอน</th>
+            <th className="px-4 py-3 font-semibold text-center">ขั้นตอนต่อหัว</th>
             <th className="px-4 py-3 font-semibold text-center">เส้นเข้า</th>
             <th className="px-4 py-3 font-semibold text-center">เส้นออก</th>
-            <th className="px-4 py-3 font-semibold text-center">ถูกอ้างเป็นผู้อนุมัติ</th>
+            <th className="px-4 py-3 font-semibold text-center">ผู้อนุมัติ</th>
           </tr>
         </thead>
         <tbody>
           {result.workload.map((w) => {
-            const bottleneck = maxInbound > 0 && w.inbound === maxInbound;
+            const bottleneck = maxPerHead > 0 && w.stepsPerHead === maxPerHead;
             const hub = maxApprover > 0 && w.approverCount === maxApprover;
             return (
-              <tr key={w.personId} className="border-b border-[var(--line)] last:border-0">
+              <tr key={w.positionId} className="border-b border-[var(--line)] last:border-0">
                 <td className="px-4 py-3">
-                  <span className="font-medium">{staffNick(w.personId)}</span>
-                  <span className="text-[var(--faint)] text-[12px]"> — {getStaff(w.personId)?.title}</span>
-                  {bottleneck && <Tag color="#B65418" text="คอขวด" />}
+                  <span className="font-medium">{positionName(w.positionId)}</span>
+                  {bottleneck && <Tag color="#B65418" text="คอขวด (ต่อหัว)" />}
                   {hub && <Tag color="#128A64" text="จุดอนุมัติหลัก" />}
                 </td>
+                <td className="px-4 py-3 text-center">{w.members}</td>
                 <td className="px-4 py-3 text-center">{w.jobCount}</td>
                 <td className="px-4 py-3 text-center">{w.stepCount}</td>
-                <td className="px-4 py-3 text-center font-semibold" style={bottleneck ? { color: "#B65418" } : undefined}>{w.inbound}</td>
+                <td className="px-4 py-3 text-center font-semibold" style={bottleneck ? { color: "#B65418" } : undefined}>{w.stepsPerHead}</td>
+                <td className="px-4 py-3 text-center">{w.inbound}</td>
                 <td className="px-4 py-3 text-center">{w.outbound}</td>
                 <td className="px-4 py-3 text-center" style={hub ? { color: "#128A64", fontWeight: 600 } : undefined}>{w.approverCount}</td>
               </tr>
