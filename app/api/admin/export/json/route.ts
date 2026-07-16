@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { loadAndReconcile } from "@/lib/reconcile";
-import { getStaff, staffNick } from "@/lib/staff";
+import { getPosition, positionName } from "@/lib/positions";
 import { JobRow, StepRow, StepLinkRow, LinkKind } from "@/lib/types";
 
 function linkLabel(l: StepLinkRow): string {
   if (l.external) return "ลูกค้า/ภายนอก";
-  return l.person_id ? staffNick(l.person_id) : "";
+  return l.position_id ? positionName(l.position_id) : "";
 }
 
 export async function GET() {
@@ -34,11 +34,11 @@ export async function GET() {
   const kind = (stepId: string, k: LinkKind) => {
     const rows = (linksByStep.get(stepId) ?? []).filter((l) => l.kind === k);
     if (rows.length === 0) return undefined;
-    return { people: rows.map(linkLabel), what: rows.find((r) => r.what)?.what ?? undefined };
+    return { positions: rows.map(linkLabel), what: rows.find((r) => r.what)?.what ?? undefined };
   };
 
-  const people = data.responses.map((r) => {
-    const staff = getStaff(r.person_id);
+  const positions = data.responses.map((r) => {
+    const p = getPosition(r.position_id);
     const jobs = (jobsByResponse.get(r.id) ?? [])
       .sort((a, b) => a.job_order - b.job_order)
       .map((j) => ({
@@ -55,23 +55,32 @@ export async function GET() {
             approver: kind(s.id, "approver"),
           })),
       }));
-    return { person_id: r.person_id, nick: staff?.nick ?? r.person_id, title: staff?.title, group: staff?.group, blockers: r.blockers, submitted_at: r.updated_at, jobs };
+    return {
+      position_id: r.position_id,
+      name: p?.name ?? r.position_id,
+      group: p?.group,
+      members: p?.members,
+      filled_by: r.filled_by,
+      blockers: r.blockers,
+      submitted_at: r.updated_at,
+      jobs,
+    };
   });
 
   const payload = {
     generated_at: new Date().toISOString(),
     summary: {
       submitted: result.submittedIds.length,
-      missing: result.missingIds.map(staffNick),
+      missing: result.missingIds.map(positionName),
       matched: result.matched.length,
       one_sided: result.oneSided.length,
     },
-    people,
+    positions,
     edges: result.edges.map((e) => ({
       from: e.from,
-      from_nick: staffNick(e.from),
+      from_name: positionName(e.from),
       to: e.to,
-      to_nick: staffNick(e.to),
+      to_name: positionName(e.to),
       status: e.status,
       sender_asserted: e.senderAsserted,
       receiver_asserted: e.receiverAsserted,

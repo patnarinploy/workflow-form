@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getStaff } from "@/lib/staff";
+import { getPosition } from "@/lib/positions";
 import { Job, Reveal, LinkKind, isSpecialToken } from "@/lib/types";
 
-type Payload = { personId: string; jobs: Job[]; blockers?: string };
+type Payload = { positionId: string; filledBy?: string; jobs: Job[]; blockers?: string };
 
 function jobsValid(jobs: Job[]): boolean {
   if (jobs.length === 0) return false;
@@ -12,17 +12,17 @@ function jobsValid(jobs: Job[]): boolean {
   );
 }
 
-type LinkInsert = { step_id: string; kind: LinkKind; person_id: string | null; external: boolean; what: string | null };
+type LinkInsert = { step_id: string; kind: LinkKind; position_id: string | null; external: boolean; what: string | null };
 
 function revealRows(stepId: string, kind: LinkKind, reveal: Reveal | undefined): LinkInsert[] {
   if (!reveal || !reveal.enabled) return [];
   const rows: LinkInsert[] = [];
   const what = kind === "approver" ? null : reveal.what?.trim() || null;
-  for (const token of reveal.people ?? []) {
+  for (const token of reveal.positions ?? []) {
     if (isSpecialToken(token)) {
-      rows.push({ step_id: stepId, kind, person_id: null, external: true, what });
-    } else if (getStaff(token)) {
-      rows.push({ step_id: stepId, kind, person_id: token, external: false, what });
+      rows.push({ step_id: stepId, kind, position_id: null, external: true, what });
+    } else if (getPosition(token)) {
+      rows.push({ step_id: stepId, kind, position_id: token, external: false, what });
     }
   }
   return rows;
@@ -36,8 +36,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "รูปแบบข้อมูลไม่ถูกต้อง" }, { status: 400 });
   }
 
-  if (!body.personId || !getStaff(body.personId)) {
-    return NextResponse.json({ error: "ไม่พบชื่อพนักงานนี้" }, { status: 400 });
+  if (!body.positionId || !getPosition(body.positionId)) {
+    return NextResponse.json({ error: "ไม่พบตำแหน่งนี้" }, { status: 400 });
   }
   const jobs = Array.isArray(body.jobs) ? body.jobs : [];
   if (!jobsValid(jobs)) {
@@ -46,12 +46,16 @@ export async function POST(req: Request) {
 
   const supabase = createServiceClient();
 
-  // Upsert response (edit in place on re-submit).
   const { data: response, error: respErr } = await supabase
     .from("responses")
     .upsert(
-      { person_id: body.personId, blockers: body.blockers?.trim() || null, updated_at: new Date().toISOString() },
-      { onConflict: "person_id" }
+      {
+        position_id: body.positionId,
+        filled_by: body.filledBy?.trim() || null,
+        blockers: body.blockers?.trim() || null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "position_id" }
     )
     .select("id")
     .single();
@@ -59,13 +63,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "บันทึกข้อมูลไม่สำเร็จ" }, { status: 500 });
   }
 
-  // Replace-all: clear previous jobs (cascade clears steps + step_links).
   const { error: delErr } = await supabase.from("jobs").delete().eq("response_id", response.id);
   if (delErr) {
     return NextResponse.json({ error: "บันทึกข้อมูลไม่สำเร็จ (clear)" }, { status: 500 });
   }
 
-  // Insert jobs.
   const { data: insertedJobs, error: jobErr } = await supabase
     .from("jobs")
     .insert(
@@ -84,7 +86,6 @@ export async function POST(req: Request) {
   const jobIdByOrder = new Map<number, string>();
   for (const j of insertedJobs as { id: string; job_order: number }[]) jobIdByOrder.set(j.job_order, j.id);
 
-  // Insert steps for all jobs.
   const stepInsert: { job_id: string; step_order: number; action: string }[] = [];
   jobs.forEach((job, ji) => {
     const jobId = jobIdByOrder.get(ji + 1);
@@ -105,7 +106,6 @@ export async function POST(req: Request) {
     stepIdByKey.set(`${s.job_id}:${s.step_order}`, s.id);
   }
 
-  // Build step_links from ticked reveals.
   const linkRows: LinkInsert[] = [];
   jobs.forEach((job, ji) => {
     const jobId = jobIdByOrder.get(ji + 1);
