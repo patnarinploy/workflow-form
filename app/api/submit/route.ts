@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getPosition } from "@/lib/positions";
-import { Job, Reveal, LinkKind, isSpecialToken } from "@/lib/types";
+import { Job, LinkKind, isSpecialToken } from "@/lib/types";
 
 type Payload = { positionId: string; filledBy?: string; jobs: Job[]; blockers?: string };
 
@@ -12,21 +12,16 @@ function jobsValid(jobs: Job[]): boolean {
   );
 }
 
-type LinkInsert = { step_id: string; kind: LinkKind; position_id: string | null; external: boolean; what: string | null };
-
-function revealRows(stepId: string, kind: LinkKind, reveal: Reveal | undefined): LinkInsert[] {
-  if (!reveal || !reveal.enabled) return [];
-  const rows: LinkInsert[] = [];
-  const what = kind === "approver" ? null : reveal.what?.trim() || null;
-  for (const token of reveal.positions ?? []) {
-    if (isSpecialToken(token)) {
-      rows.push({ step_id: stepId, kind, position_id: null, external: true, what });
-    } else if (getPosition(token)) {
-      rows.push({ step_id: stepId, kind, position_id: token, external: false, what });
-    }
-  }
-  return rows;
-}
+// A link to be inserted, tagged with a natural key so we can attach targets after insert.
+type LinkDraft = {
+  step_id: string;
+  kind: LinkKind;
+  link_order: number;
+  what: string | null;
+  conditional: boolean;
+  condition: string | null;
+  tokens: string[]; // position tokens for this item
+};
 
 export async function POST(req: Request) {
   let body: Payload;
@@ -63,6 +58,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "บันทึกข้อมูลไม่สำเร็จ" }, { status: 500 });
   }
 
+  // Replace-all: clearing jobs cascades to steps -> step_links -> step_link_targets.
   const { error: delErr } = await supabase.from("jobs").delete().eq("response_id", response.id);
   if (delErr) {
     return NextResponse.json({ error: "บันทึกข้อมูลไม่สำเร็จ (clear)" }, { status: 500 });
@@ -106,23 +102,85 @@ export async function POST(req: Request) {
     stepIdByKey.set(`${s.job_id}:${s.step_order}`, s.id);
   }
 
-  const linkRows: LinkInsert[] = [];
+  const cleanTokens = (tokens: string[]) =>
+    (tokens ?? []).filter((t) => isSpecialToken(t) || !!getPosition(t));
+
+  // Build link drafts (one per line item / approver group) with their target tokens.
+  const drafts: LinkDraft[] = [];
   jobs.forEach((job, ji) => {
     const jobId = jobIdByOrder.get(ji + 1);
     if (!jobId) return;
     job.steps.forEach((s, si) => {
       const stepId = stepIdByKey.get(`${jobId}:${si + 1}`);
       if (!stepId) return;
-      linkRows.push(...revealRows(stepId, "waits_for", s.waitsFor));
-      linkRows.push(...revealRows(stepId, "sends_to", s.sendsTo));
-      linkRows.push(...revealRows(stepId, "approver", s.approver));
+
+      if (s.waitsFor?.enabled) {
+        s.waitsFor.items.forEach((item, k) => {
+          const tokens = cleanTokens(item.positions);
+          if (tokens.length === 0) return;
+          drafts.push({ step_id: stepId, kind: "waits_for", link_order: k, what: item.what?.trim() || null, conditional: false, condition: null, tokens });
+        });
+      }
+      if (s.sendsTo?.enabled) {
+        s.sendsTo.items.forEach((item, k) => {
+          const tokens = cleanTokens(item.positions);
+          if (tokens.length === 0) return;
+          drafts.push({
+            step_id: stepId,
+            kind: "sends_to",
+            link_order: k,
+            what: item.what?.trim() || null,
+            conditional: !!item.conditional,
+            condition: item.conditional ? item.condition?.trim() || null : null,
+            tokens,
+          });
+        });
+      }
+      if (s.approver?.enabled) {
+        const tokens = cleanTokens(s.approver.positions);
+        if (tokens.length > 0) {
+          drafts.push({ step_id: stepId, kind: "approver", link_order: 0, what: null, conditional: false, condition: null, tokens });
+        }
+      }
     });
   });
 
-  if (linkRows.length) {
-    const { error: linkErr } = await supabase.from("step_links").insert(linkRows);
-    if (linkErr) {
+  if (drafts.length) {
+    const { data: insertedLinks, error: linkErr } = await supabase
+      .from("step_links")
+      .insert(
+        drafts.map((d) => ({
+          step_id: d.step_id,
+          kind: d.kind,
+          link_order: d.link_order,
+          what: d.what,
+          conditional: d.conditional,
+          condition: d.condition,
+        }))
+      )
+      .select("id, step_id, kind, link_order");
+    if (linkErr || !insertedLinks) {
       return NextResponse.json({ error: "บันทึกจุดเชื่อมไม่สำเร็จ" }, { status: 500 });
+    }
+    const linkIdByKey = new Map<string, string>();
+    for (const l of insertedLinks as { id: string; step_id: string; kind: string; link_order: number }[]) {
+      linkIdByKey.set(`${l.step_id}:${l.kind}:${l.link_order}`, l.id);
+    }
+
+    const targetRows: { link_id: string; position_id: string | null; external: boolean }[] = [];
+    for (const d of drafts) {
+      const linkId = linkIdByKey.get(`${d.step_id}:${d.kind}:${d.link_order}`);
+      if (!linkId) continue;
+      for (const token of d.tokens) {
+        if (isSpecialToken(token)) targetRows.push({ link_id: linkId, position_id: null, external: true });
+        else targetRows.push({ link_id: linkId, position_id: token, external: false });
+      }
+    }
+    if (targetRows.length) {
+      const { error: tErr } = await supabase.from("step_link_targets").insert(targetRows);
+      if (tErr) {
+        return NextResponse.json({ error: "บันทึกปลายทางไม่สำเร็จ" }, { status: 500 });
+      }
     }
   }
 

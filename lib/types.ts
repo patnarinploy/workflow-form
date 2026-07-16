@@ -15,19 +15,23 @@ export function specialOf(token: string): SpecialValue {
 }
 
 // v4 model: position -> job -> step, with optional per-step links.
+// Each handoff is a LINE ITEM (not a single multi-select) because one step can
+// send different things to different positions, sometimes conditionally.
 export type LinkKind = "waits_for" | "sends_to" | "approver";
 
-export type Reveal = {
-  enabled: boolean;
-  positions: string[]; // tokens: position ids + "@external"
-  what: string; // used by waits_for / sends_to only
-};
+// "positions" holds tokens: position ids + "@external"
+export type WaitItem = { what: string; positions: string[] };
+export type SendItem = { what: string; positions: string[]; conditional: boolean; condition: string };
+
+export type WaitsGroup = { enabled: boolean; items: WaitItem[] };
+export type SendsGroup = { enabled: boolean; items: SendItem[] };
+export type ApproverGroup = { enabled: boolean; positions: string[] };
 
 export type Step = {
   action: string; // required
-  waitsFor: Reveal;
-  sendsTo: Reveal;
-  approver: Reveal; // "what" unused
+  waitsFor: WaitsGroup;
+  sendsTo: SendsGroup;
+  approver: ApproverGroup;
 };
 
 export type Job = {
@@ -46,13 +50,18 @@ export type FormState = {
 
 export const FREQUENCY_OPTIONS = ["ทุกโปรเจกต์", "รายสัปดาห์", "รายเดือน", "นานๆ ครั้ง"];
 
-export const emptyReveal = (): Reveal => ({ enabled: false, positions: [], what: "" });
+export const emptyWaitItem = (): WaitItem => ({ what: "", positions: [] });
+export const emptySendItem = (): SendItem => ({ what: "", positions: [], conditional: false, condition: "" });
+
+export const emptyWaits = (): WaitsGroup => ({ enabled: false, items: [] });
+export const emptySends = (): SendsGroup => ({ enabled: false, items: [] });
+export const emptyApprover = (): ApproverGroup => ({ enabled: false, positions: [] });
 
 export const emptyStep = (): Step => ({
   action: "",
-  waitsFor: emptyReveal(),
-  sendsTo: emptyReveal(),
-  approver: emptyReveal(),
+  waitsFor: emptyWaits(),
+  sendsTo: emptySends(),
+  approver: emptyApprover(),
 });
 
 export const emptyJob = (): Job => ({
@@ -96,11 +105,20 @@ export type StepRow = {
   action: string;
 };
 
+// One row = one send/wait line item (or one approver group). Targets live in step_link_targets.
 export type StepLinkRow = {
   id: string;
   step_id: string;
   kind: LinkKind;
+  link_order: number;
+  what: string | null;
+  conditional: boolean;
+  condition: string | null;
+};
+
+export type StepLinkTargetRow = {
+  id: string;
+  link_id: string;
   position_id: string | null;
   external: boolean;
-  what: string | null;
 };

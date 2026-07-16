@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ResponseRow, JobRow, StepRow, StepLinkRow } from "./types";
+import { ResponseRow, JobRow, StepRow, StepLinkRow, StepLinkTargetRow } from "./types";
 import { POSITIONS, memberCount } from "./positions";
 
 export type RawData = {
@@ -7,6 +7,7 @@ export type RawData = {
   jobs: JobRow[];
   steps: StepRow[];
   links: StepLinkRow[];
+  targets: StepLinkTargetRow[];
 };
 
 export type EdgeStatus = "matched" | "mismatch" | "pending";
@@ -33,14 +34,14 @@ export type Workload = {
 };
 
 // ---- structure used to draw the swimlane ----
+export type FlowSend = { what: string; conditional: boolean; condition: string; targets: string[]; external: boolean };
+export type FlowWait = { what: string; targets: string[]; external: boolean };
 export type FlowStep = {
   id: string;
   order: number;
   action: string;
-  sendsTo: string[]; // position ids (external excluded)
-  sendsExternal: boolean;
-  waitsFor: string[];
-  waitsExternal: boolean;
+  sends: FlowSend[];
+  waits: FlowWait[];
   approvers: string[];
   approverExternal: boolean;
 };
@@ -64,6 +65,18 @@ type EdgeAccum = {
   senderContext: Set<string>;
   receiverContext: Set<string>;
 };
+
+// targets split into position ids vs external flag, per link
+function splitTargets(targets: StepLinkTargetRow[]) {
+  const byLink = new Map<string, { positions: string[]; external: boolean }>();
+  for (const t of targets) {
+    const e = byLink.get(t.link_id) ?? { positions: [], external: false };
+    if (t.external) e.external = true;
+    else if (t.position_id) e.positions.push(t.position_id);
+    byLink.set(t.link_id, e);
+  }
+  return byLink;
+}
 
 export function reconcile(data: RawData): Reconciliation {
   const ownerByResponse = new Map<string, string>();
@@ -90,6 +103,8 @@ export function reconcile(data: RawData): Reconciliation {
     stepMeta.set(s.id, { owner, jobName: job.name, action: s.action });
   }
 
+  const targetsByLink = splitTargets(data.targets);
+
   const submittedIds = data.responses.map((r) => r.position_id);
   const submittedSet = new Set(submittedIds);
 
@@ -113,17 +128,23 @@ export function reconcile(data: RawData): Reconciliation {
     const meta = stepMeta.get(link.step_id);
     if (!meta) continue;
     const owner = meta.owner;
+    const tg = targetsByLink.get(link.id);
+    const positions = tg?.positions ?? [];
 
-    if (link.kind === "sends_to" && link.position_id) {
-      const e = getEdge(owner, link.position_id);
-      e.senderAsserted = true;
-      e.senderContext.add(ctx(meta, link.what));
-    } else if (link.kind === "waits_for" && link.position_id) {
-      const e = getEdge(link.position_id, owner);
-      e.receiverAsserted = true;
-      e.receiverContext.add(ctx(meta, link.what));
-    } else if (link.kind === "approver" && link.position_id) {
-      approverCount.set(link.position_id, (approverCount.get(link.position_id) ?? 0) + 1);
+    if (link.kind === "sends_to") {
+      for (const b of positions) {
+        const e = getEdge(owner, b);
+        e.senderAsserted = true;
+        e.senderContext.add(ctx(meta, link.what));
+      }
+    } else if (link.kind === "waits_for") {
+      for (const a of positions) {
+        const e = getEdge(a, owner);
+        e.receiverAsserted = true;
+        e.receiverContext.add(ctx(meta, link.what));
+      }
+    } else if (link.kind === "approver") {
+      for (const p of positions) approverCount.set(p, (approverCount.get(p) ?? 0) + 1);
     }
   }
 
@@ -213,20 +234,23 @@ export function reconcile(data: RawData): Reconciliation {
         steps: (stepsByJob.get(j.id) ?? [])
           .sort((a, b) => a.step_order - b.step_order)
           .map((s) => {
-            const ls = linksByStep.get(s.id) ?? [];
-            const positions = (kind: string) => ls.filter((l) => l.kind === kind && l.position_id).map((l) => l.position_id as string);
-            const hasExt = (kind: string) => ls.some((l) => l.kind === kind && l.external);
-            return {
-              id: s.id,
-              order: s.step_order,
-              action: s.action,
-              sendsTo: positions("sends_to"),
-              sendsExternal: hasExt("sends_to"),
-              waitsFor: positions("waits_for"),
-              waitsExternal: hasExt("waits_for"),
-              approvers: positions("approver"),
-              approverExternal: hasExt("approver"),
-            };
+            const ls = (linksByStep.get(s.id) ?? []).slice().sort((a, b) => a.link_order - b.link_order);
+            const sends: FlowSend[] = ls
+              .filter((l) => l.kind === "sends_to")
+              .map((l) => {
+                const tg = targetsByLink.get(l.id) ?? { positions: [], external: false };
+                return { what: l.what ?? "", conditional: !!l.conditional, condition: l.condition ?? "", targets: tg.positions, external: tg.external };
+              });
+            const waits: FlowWait[] = ls
+              .filter((l) => l.kind === "waits_for")
+              .map((l) => {
+                const tg = targetsByLink.get(l.id) ?? { positions: [], external: false };
+                return { what: l.what ?? "", targets: tg.positions, external: tg.external };
+              });
+            const approverLinks = ls.filter((l) => l.kind === "approver");
+            const approvers = approverLinks.flatMap((l) => targetsByLink.get(l.id)?.positions ?? []);
+            const approverExternal = approverLinks.some((l) => targetsByLink.get(l.id)?.external);
+            return { id: s.id, order: s.step_order, action: s.action, sends, waits, approvers, approverExternal };
           }),
       })),
   }));
@@ -248,17 +272,19 @@ export function reconcile(data: RawData): Reconciliation {
 export async function loadAndReconcile(
   supabase: SupabaseClient
 ): Promise<{ data: RawData; result: Reconciliation }> {
-  const [{ data: responses }, { data: jobs }, { data: steps }, { data: links }] = await Promise.all([
+  const [{ data: responses }, { data: jobs }, { data: steps }, { data: links }, { data: targets }] = await Promise.all([
     supabase.from("responses").select("*"),
     supabase.from("jobs").select("*"),
     supabase.from("steps").select("*"),
     supabase.from("step_links").select("*"),
+    supabase.from("step_link_targets").select("*"),
   ]);
   const raw: RawData = {
     responses: (responses as ResponseRow[] | null) ?? [],
     jobs: (jobs as JobRow[] | null) ?? [],
     steps: (steps as StepRow[] | null) ?? [],
     links: (links as StepLinkRow[] | null) ?? [],
+    targets: (targets as StepLinkTargetRow[] | null) ?? [],
   };
   return { data: raw, result: reconcile(raw) };
 }
