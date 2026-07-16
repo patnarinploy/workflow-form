@@ -1,6 +1,6 @@
 "use client";
 
-import { PersonSelect } from "./PersonSelect";
+import { PositionSelect } from "./PositionSelect";
 import { Step, Reveal } from "@/lib/types";
 
 const EXTERNAL: ["external"] = ["external"];
@@ -8,21 +8,19 @@ const EXTERNAL: ["external"] = ["external"];
 function RevealRow({
   reveal,
   onChange,
-  personId,
   label,
   color,
   whatLabel,
   whatPlaceholder,
-  personPlaceholder,
+  posPlaceholder,
 }: {
   reveal: Reveal;
   onChange: (r: Reveal) => void;
-  personId: string;
   label: string;
   color: string;
   whatLabel?: string;
   whatPlaceholder?: string;
-  personPlaceholder: string;
+  posPlaceholder: string;
 }) {
   return (
     <div>
@@ -38,12 +36,11 @@ function RevealRow({
       </label>
       {reveal.enabled && (
         <div className="mt-2 ml-6 flex flex-col gap-2">
-          <PersonSelect
-            value={reveal.people}
-            onChange={(people) => onChange({ ...reveal, people })}
+          <PositionSelect
+            value={reveal.positions}
+            onChange={(positions) => onChange({ ...reveal, positions })}
             specials={EXTERNAL}
-            excludeId={personId}
-            placeholder={personPlaceholder}
+            placeholder={posPlaceholder}
           />
           {whatLabel && (
             <input
@@ -63,7 +60,6 @@ function RevealRow({
 export function StepEditor({
   step,
   number,
-  personId,
   actionError,
   onChange,
   onRemove,
@@ -77,7 +73,6 @@ export function StepEditor({
 }: {
   step: Step;
   number: number;
-  personId: string;
   actionError?: boolean;
   onChange: (s: Step) => void;
   onRemove: () => void;
@@ -93,11 +88,7 @@ export function StepEditor({
     <div className="border border-[var(--line)] rounded-[12px] bg-[var(--bg)]/40 p-3">
       <div className="flex items-start gap-2">
         <div className="flex flex-col items-center pt-1.5 gap-0.5">
-          <span
-            {...dragProps}
-            className="cursor-grab select-none text-[var(--faint)] leading-none text-[13px] hidden md:block"
-            title="ลากเพื่อสลับลำดับ"
-          >
+          <span {...dragProps} className="cursor-grab select-none text-[var(--faint)] leading-none text-[13px] hidden md:block" title="ลากเพื่อสลับลำดับ">
             ⣿
           </span>
           <span className="font-disp font-semibold text-[13px] text-[var(--faint)]">{number}</span>
@@ -120,30 +111,27 @@ export function StepEditor({
             <RevealRow
               reveal={step.waitsFor}
               onChange={(r) => onChange({ ...step, waitsFor: r })}
-              personId={personId}
-              label="ต้องรอของจากคนอื่นก่อน"
+              label="ต้องรอของจากตำแหน่งอื่นก่อน"
               color="#B65418"
               whatLabel="รออะไร"
               whatPlaceholder="รออะไร เช่น ไฟล์กราฟิก, บทที่อนุมัติ"
-              personPlaceholder="รอของจากใคร…"
+              posPlaceholder="รอของจากตำแหน่งไหน…"
             />
             <RevealRow
               reveal={step.sendsTo}
               onChange={(r) => onChange({ ...step, sendsTo: r })}
-              personId={personId}
-              label="ส่งให้คนอื่นต่อ"
+              label="ส่งให้ตำแหน่งอื่นต่อ"
               color="#128A64"
               whatLabel="ส่งอะไร"
               whatPlaceholder="ส่งอะไร เช่น รายชื่อนักแสดง, ไฟล์ตัดต่อ"
-              personPlaceholder="ส่งให้ใคร…"
+              posPlaceholder="ส่งให้ตำแหน่งไหน…"
             />
             <RevealRow
               reveal={step.approver}
               onChange={(r) => onChange({ ...step, approver: r })}
-              personId={personId}
               label="ต้องขออนุมัติ"
               color="#6C7A73"
-              personPlaceholder="ใครอนุมัติ…"
+              posPlaceholder="ตำแหน่งไหนอนุมัติ…"
             />
           </div>
 
@@ -154,12 +142,7 @@ export function StepEditor({
         </div>
 
         {canRemove && (
-          <button
-            type="button"
-            onClick={onRemove}
-            aria-label="ลบขั้นตอน"
-            className="text-[var(--faint)] hover:text-[var(--danger)] text-lg leading-none pt-1"
-          >
+          <button type="button" onClick={onRemove} aria-label="ลบขั้นตอน" className="text-[var(--faint)] hover:text-[var(--danger)] text-lg leading-none pt-1">
             ×
           </button>
         )}

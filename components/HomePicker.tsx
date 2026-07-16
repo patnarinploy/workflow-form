@@ -2,31 +2,45 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { PersonCombobox } from "./PersonSelect";
-import { getStaff } from "@/lib/staff";
+import { PositionCombobox } from "./PositionSelect";
+import { getPosition } from "@/lib/positions";
 
-const LAST_PERSON_KEY = "wf-last-person";
+const LAST_KEY = "wf-last-position";
 
 export function HomePicker() {
   const router = useRouter();
-  const [personId, setPersonId] = useState("");
-  const [remembered, setRemembered] = useState<string | null>(null);
+  const [positionId, setPositionId] = useState("");
+  const [member, setMember] = useState("");
+  const [remembered, setRemembered] = useState<{ id: string; by: string } | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem(LAST_PERSON_KEY);
-    if (saved && getStaff(saved)) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setRemembered(saved);
+    try {
+      const raw = localStorage.getItem(LAST_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.id && getPosition(parsed.id)) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect
+          setRemembered({ id: parsed.id, by: parsed.by || "" });
+        }
+      }
+    } catch {
+      // ignore
     }
   }, []);
 
-  function go(id: string) {
-    if (!id || !getStaff(id)) return;
-    localStorage.setItem(LAST_PERSON_KEY, id);
-    router.push(`/form/${id}`);
+  const pos = positionId ? getPosition(positionId) : undefined;
+  const needsMember = !!pos && pos.members.length > 1;
+  const canGo = !!pos && (!needsMember || !!member);
+
+  function go(id: string, by: string) {
+    const p = getPosition(id);
+    if (!p) return;
+    const filledBy = p.members.length === 1 ? p.members[0] : by;
+    localStorage.setItem(LAST_KEY, JSON.stringify({ id, by: filledBy }));
+    router.push(`/form/${id}?by=${encodeURIComponent(filledBy)}`);
   }
 
-  const rememberedStaff = remembered ? getStaff(remembered) : null;
+  const rememberedPos = remembered ? getPosition(remembered.id) : null;
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-5 py-16">
@@ -35,31 +49,51 @@ export function HomePicker() {
           <span className="w-[26px] h-0.5 bg-[var(--accent)] rounded-full" />
           True CJ Creations · Workflow
         </div>
-        <h1 className="font-disp font-bold text-[28px] leading-[1.15] mb-2">คุณคือใคร?</h1>
+        <h1 className="font-disp font-bold text-[28px] leading-[1.15] mb-2">คุณอยู่ตำแหน่งไหน?</h1>
         <p className="text-[15px] text-[var(--muted)] mb-6">
-          เลือกชื่อตัวเองเพื่อกรอกงานที่คุณทำ ระบบจะเอาคำตอบของทุกคนมาต่อเป็นผังงานให้เอง
+          เลือกตำแหน่งของคุณเพื่อกรอกงานประจำของตำแหน่งนั้น ระบบจะเอาคำตอบทุกตำแหน่งมาต่อเป็นผังงานให้เอง
         </p>
 
-        {rememberedStaff && (
+        {rememberedPos && (
           <button
-            onClick={() => go(rememberedStaff.id)}
+            onClick={() => go(rememberedPos.id, remembered!.by)}
             className="w-full mb-4 text-left bg-[var(--accent-soft)] border border-[var(--accent-line)] rounded-[12px] px-4 py-3 hover:opacity-90"
           >
-            <div className="text-[12px] text-[var(--muted)] mb-0.5">กรอกต่อในชื่อเดิม</div>
-            <div className="font-semibold text-[#0F5F47]">
-              {rememberedStaff.nick} <span className="font-normal text-[13px]">— {rememberedStaff.title}</span>
-            </div>
+            <div className="text-[12px] text-[var(--muted)] mb-0.5">กรอกต่อในตำแหน่งเดิม</div>
+            <div className="font-semibold text-[#0F5F47]">{rememberedPos.name}</div>
+            {remembered!.by && <div className="text-[12px] text-[#0F5F47]">โดย {remembered!.by}</div>}
           </button>
         )}
 
-        <label className="block text-[12.5px] font-semibold text-[var(--muted)] mb-1.5">
-          เลือกชื่อของคุณ
-        </label>
-        <PersonCombobox value={personId} onChange={setPersonId} placeholder="พิมพ์ค้นหาชื่อตัวเอง…" />
+        <label className="block text-[12.5px] font-semibold text-[var(--muted)] mb-1.5">เลือกตำแหน่งของคุณ</label>
+        <PositionCombobox
+          value={positionId}
+          onChange={(id) => {
+            setPositionId(id);
+            setMember("");
+          }}
+          placeholder="พิมพ์ค้นหาตำแหน่ง / ชื่อตัวเอง…"
+        />
+
+        {needsMember && (
+          <div className="mt-3">
+            <label className="block text-[12.5px] font-semibold text-[var(--muted)] mb-1.5">คุณคือใคร? (ตำแหน่งนี้มีหลายคน)</label>
+            <select
+              value={member}
+              onChange={(e) => setMember(e.target.value)}
+              className="w-full text-sm bg-[var(--field)] border border-[var(--field-bd)] rounded-[10px] px-3 py-2.5 outline-none focus:border-[var(--accent)]"
+            >
+              <option value="">— เลือกชื่อ —</option>
+              {pos!.members.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <button
-          onClick={() => go(personId)}
-          disabled={!personId}
+          onClick={() => go(positionId, member)}
+          disabled={!canGo}
           className="mt-4 w-full text-sm font-semibold px-5 py-3 rounded-[10px] bg-[var(--accent)] text-white disabled:opacity-50"
         >
           เริ่มกรอก

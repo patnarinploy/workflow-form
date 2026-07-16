@@ -9,7 +9,6 @@ export type JobFieldRef = (kind: "name" | "step", stepIndex: number, el: HTMLEle
 export function JobCard({
   job,
   number,
-  personId,
   nameError,
   stepErrors,
   onChange,
@@ -19,7 +18,6 @@ export function JobCard({
 }: {
   job: Job;
   number: number;
-  personId: string;
   nameError?: boolean;
   stepErrors: Set<number>;
   onChange: (j: Job) => void;
@@ -116,7 +114,6 @@ export function JobCard({
                 key={i}
                 step={s}
                 number={i + 1}
-                personId={personId}
                 actionError={stepErrors.has(i)}
                 onChange={(ns) => setStep(i, ns)}
                 onRemove={() => removeStep(i)}
@@ -138,11 +135,7 @@ export function JobCard({
               />
             ))}
           </div>
-          <button
-            type="button"
-            onClick={addStep}
-            className="mt-2 text-[13px] font-semibold text-[var(--accent)]"
-          >
+          <button type="button" onClick={addStep} className="mt-2 text-[13px] font-semibold text-[var(--accent)]">
             + เพิ่มขั้นตอน
           </button>
         </div>
