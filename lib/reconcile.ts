@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ResponseRow, JobRow, StepRow, StepLinkRow, StepLinkTargetRow } from "./types";
+import { ResponseRow, JobRow, StepRow, StepLinkRow, StepLinkTargetRow, StepDecisionRow } from "./types";
 import { POSITIONS, memberCount } from "./positions";
 
 export type RawData = {
@@ -8,6 +8,7 @@ export type RawData = {
   steps: StepRow[];
   links: StepLinkRow[];
   targets: StepLinkTargetRow[];
+  decisions: StepDecisionRow[];
 };
 
 export type EdgeStatus = "matched" | "mismatch" | "pending";
@@ -36,6 +37,14 @@ export type Workload = {
 // ---- structure used to draw the swimlane ----
 export type FlowSend = { what: string; conditional: boolean; condition: string; targets: string[]; external: boolean };
 export type FlowWait = { what: string; targets: string[]; external: boolean };
+export type FlowDecision = {
+  decider: string; // position id, or "" when own/unknown
+  deciderExternal: boolean;
+  failStepId: string; // real step id, or ""
+  failPosition: string; // position id, or ""
+  failExternal: boolean;
+  failReason: string;
+};
 export type FlowStep = {
   id: string;
   order: number;
@@ -44,6 +53,7 @@ export type FlowStep = {
   waits: FlowWait[];
   approvers: string[];
   approverExternal: boolean;
+  decision: FlowDecision | null;
 };
 export type FlowJob = { id: string; name: string; order: number; steps: FlowStep[] };
 export type FlowPosition = { positionId: string; jobs: FlowJob[] };
@@ -223,6 +233,20 @@ export function reconcile(data: RawData): Reconciliation {
     arr.push(j);
     jobsByResponse.set(j.response_id, arr);
   }
+  const decisionByStep = new Map<string, StepDecisionRow>();
+  for (const d of data.decisions) decisionByStep.set(d.step_id, d);
+  const flowDecision = (stepId: string): FlowDecision | null => {
+    const d = decisionByStep.get(stepId);
+    if (!d) return null;
+    return {
+      decider: d.decider_position_id ?? "",
+      deciderExternal: !!d.decider_external,
+      failStepId: d.fail_step_id ?? "",
+      failPosition: d.fail_position_id ?? "",
+      failExternal: !!d.fail_external,
+      failReason: d.fail_reason ?? "",
+    };
+  };
   const structure: FlowPosition[] = data.responses.map((r) => ({
     positionId: r.position_id,
     jobs: (jobsByResponse.get(r.id) ?? [])
@@ -250,7 +274,7 @@ export function reconcile(data: RawData): Reconciliation {
             const approverLinks = ls.filter((l) => l.kind === "approver");
             const approvers = approverLinks.flatMap((l) => targetsByLink.get(l.id)?.positions ?? []);
             const approverExternal = approverLinks.some((l) => targetsByLink.get(l.id)?.external);
-            return { id: s.id, order: s.step_order, action: s.action, sends, waits, approvers, approverExternal };
+            return { id: s.id, order: s.step_order, action: s.action, sends, waits, approvers, approverExternal, decision: flowDecision(s.id) };
           }),
       })),
   }));
@@ -272,12 +296,13 @@ export function reconcile(data: RawData): Reconciliation {
 export async function loadAndReconcile(
   supabase: SupabaseClient
 ): Promise<{ data: RawData; result: Reconciliation }> {
-  const [{ data: responses }, { data: jobs }, { data: steps }, { data: links }, { data: targets }] = await Promise.all([
+  const [{ data: responses }, { data: jobs }, { data: steps }, { data: links }, { data: targets }, { data: decisions }] = await Promise.all([
     supabase.from("responses").select("*"),
     supabase.from("jobs").select("*"),
     supabase.from("steps").select("*"),
     supabase.from("step_links").select("*"),
     supabase.from("step_link_targets").select("*"),
+    supabase.from("step_decisions").select("*"),
   ]);
   const raw: RawData = {
     responses: (responses as ResponseRow[] | null) ?? [],
@@ -285,6 +310,7 @@ export async function loadAndReconcile(
     steps: (steps as StepRow[] | null) ?? [],
     links: (links as StepLinkRow[] | null) ?? [],
     targets: (targets as StepLinkTargetRow[] | null) ?? [],
+    decisions: (decisions as StepDecisionRow[] | null) ?? [],
   };
   return { data: raw, result: reconcile(raw) };
 }
