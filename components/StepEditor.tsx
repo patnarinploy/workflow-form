@@ -65,19 +65,20 @@ function addBtn(label: string, onClick: () => void) {
 
 // ---- waits ----
 function WaitsEditor({ group, onChange }: { group: WaitsGroup; onChange: (g: WaitsGroup) => void }) {
+  const items = group.items ?? [];
   const setItem = (i: number, item: WaitItem) => {
-    const items = group.items.slice();
-    items[i] = item;
-    onChange({ ...group, items });
+    const next = items.slice();
+    next[i] = item;
+    onChange({ ...group, items: next });
   };
-  const toggle = (v: boolean) => onChange({ enabled: v, items: v && group.items.length === 0 ? [emptyWaitItem()] : group.items });
+  const toggle = (v: boolean) => onChange({ enabled: v, items: v && items.length === 0 ? [emptyWaitItem()] : items });
   return (
     <div>
       <GroupHeader checked={group.enabled} onToggle={toggle} label="ต้องรอของจากตำแหน่งอื่นก่อน" color="#B65418" />
       {group.enabled && (
         <div className="mt-2 ml-6 flex flex-col gap-2">
-          {group.items.map((item, i) => (
-            <ItemCard key={i} onRemove={group.items.length > 1 ? () => onChange({ ...group, items: group.items.filter((_, j) => j !== i) }) : undefined}>
+          {items.map((item, i) => (
+            <ItemCard key={i} onRemove={items.length > 1 ? () => onChange({ ...group, items: items.filter((_, j) => j !== i) }) : undefined}>
               <input
                 type="text"
                 value={item.what}
@@ -93,7 +94,7 @@ function WaitsEditor({ group, onChange }: { group: WaitsGroup; onChange: (g: Wai
               />
             </ItemCard>
           ))}
-          {addBtn("+ เพิ่มของที่ต้องรออีกอย่าง", () => onChange({ ...group, items: [...group.items, emptyWaitItem()] }))}
+          {addBtn("+ เพิ่มของที่ต้องรออีกอย่าง", () => onChange({ ...group, items: [...items, emptyWaitItem()] }))}
         </div>
       )}
     </div>
@@ -102,19 +103,20 @@ function WaitsEditor({ group, onChange }: { group: WaitsGroup; onChange: (g: Wai
 
 // ---- sends ----
 function SendsEditor({ group, onChange }: { group: SendsGroup; onChange: (g: SendsGroup) => void }) {
+  const items = group.items ?? [];
   const setItem = (i: number, item: SendItem) => {
-    const items = group.items.slice();
-    items[i] = item;
-    onChange({ ...group, items });
+    const next = items.slice();
+    next[i] = item;
+    onChange({ ...group, items: next });
   };
-  const toggle = (v: boolean) => onChange({ enabled: v, items: v && group.items.length === 0 ? [emptySendItem()] : group.items });
+  const toggle = (v: boolean) => onChange({ enabled: v, items: v && items.length === 0 ? [emptySendItem()] : items });
   return (
     <div>
       <GroupHeader checked={group.enabled} onToggle={toggle} label="ส่งให้ตำแหน่งอื่นต่อ" color="#128A64" />
       {group.enabled && (
         <div className="mt-2 ml-6 flex flex-col gap-2">
-          {group.items.map((item, i) => (
-            <ItemCard key={i} onRemove={group.items.length > 1 ? () => onChange({ ...group, items: group.items.filter((_, j) => j !== i) }) : undefined}>
+          {items.map((item, i) => (
+            <ItemCard key={i} onRemove={items.length > 1 ? () => onChange({ ...group, items: items.filter((_, j) => j !== i) }) : undefined}>
               <input
                 type="text"
                 value={item.what}
@@ -148,7 +150,7 @@ function SendsEditor({ group, onChange }: { group: SendsGroup; onChange: (g: Sen
               )}
             </ItemCard>
           ))}
-          {addBtn("+ เพิ่มการส่งอีกอย่าง", () => onChange({ ...group, items: [...group.items, emptySendItem()] }))}
+          {addBtn("+ เพิ่มการส่งอีกอย่าง", () => onChange({ ...group, items: [...items, emptySendItem()] }))}
         </div>
       )}
     </div>

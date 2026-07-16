@@ -7,7 +7,8 @@ import { FormState, Job, emptyJob } from "@/lib/types";
 import { JobCard } from "./JobCard";
 
 function draftKey(positionId: string) {
-  return `wf-form-v4-${positionId}`;
+  // v41: line-item send/wait shape. Bumped so older drafts (different step shape) are ignored.
+  return `wf-form-v41-${positionId}`;
 }
 
 type JobErrors = { name: boolean; steps: Set<number> };
