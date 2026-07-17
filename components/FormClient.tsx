@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Position } from "@/lib/positions";
 import { FormState, Job, emptyJob } from "@/lib/types";
 import { JobCard } from "./JobCard";
@@ -22,7 +21,6 @@ export function FormClient({
   initial: FormState;
   existing: { filledBy: string | null; updatedAt: string } | null;
 }) {
-  const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>(initial.jobs);
   const [blockers, setBlockers] = useState(initial.blockers);
   const [filledBy] = useState(initial.filledBy);
@@ -124,7 +122,7 @@ export function FormClient({
       }
       localStorage.removeItem(draftKey(position.id));
       const stepTotal = jobs.reduce((n, j) => n + j.steps.length, 0);
-      router.push(`/thanks?pos=${position.id}&jobs=${jobs.length}&steps=${stepTotal}`);
+      window.location.href = `/thanks?pos=${position.id}&jobs=${jobs.length}&steps=${stepTotal}`;
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "ส่งข้อมูลไม่สำเร็จ กรุณาลองใหม่");
     } finally {

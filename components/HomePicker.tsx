@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { PositionCombobox } from "./PositionSelect";
 import { getPosition } from "@/lib/positions";
 
 const LAST_KEY = "wf-last-position";
 
 export function HomePicker() {
-  const router = useRouter();
   const [positionId, setPositionId] = useState("");
   const [member, setMember] = useState("");
   const [remembered, setRemembered] = useState<{ id: string; by: string } | null>(null);
@@ -37,7 +35,9 @@ export function HomePicker() {
     if (!p) return;
     const filledBy = p.members.length === 1 ? p.members[0] : by;
     localStorage.setItem(LAST_KEY, JSON.stringify({ id, by: filledBy }));
-    router.push(`/form/${id}?by=${encodeURIComponent(filledBy)}`);
+    // Hard navigation (not router.push) so we always load the current deployment's
+    // chunks — avoids "This page couldn't load" when an old tab hits new chunk hashes.
+    window.location.href = `/form/${id}?by=${encodeURIComponent(filledBy)}`;
   }
 
   const rememberedPos = remembered ? getPosition(remembered.id) : null;
