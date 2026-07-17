@@ -2,12 +2,48 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Position } from "@/lib/positions";
-import { FormState, Job, emptyJob } from "@/lib/types";
+import { FormState, Job, Step, emptyJob, emptyStep } from "@/lib/types";
 import { JobCard } from "./JobCard";
 
 function draftKey(positionId: string) {
   // v41: line-item send/wait shape. Bumped so older drafts (different step shape) are ignored.
   return `wf-form-v41-${positionId}`;
+}
+
+// Coerce a draft loaded from localStorage into the current shape. Older drafts may
+// be missing step.id / step.decision / group.items etc.; merge each step onto a
+// fresh emptyStep() so a stale draft can never crash the editor.
+function normalizeJobs(raw: unknown): Job[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  return raw.map((jr): Job => {
+    const j = (jr ?? {}) as Record<string, unknown>;
+    const base = emptyJob();
+    const stepsRaw = Array.isArray(j.steps) ? (j.steps as unknown[]) : [];
+    const steps: Step[] = stepsRaw.length
+      ? stepsRaw.map((sr): Step => {
+          const s = (sr ?? {}) as Record<string, unknown>;
+          const es = emptyStep();
+          const w = s.waitsFor as Record<string, unknown> | undefined;
+          const sd = s.sendsTo as Record<string, unknown> | undefined;
+          const ap = s.approver as Record<string, unknown> | undefined;
+          const dc = s.decision as Record<string, unknown> | undefined;
+          return {
+            id: typeof s.id === "string" && s.id ? s.id : es.id,
+            action: typeof s.action === "string" ? s.action : "",
+            waitsFor: w && Array.isArray(w.items) ? (w as unknown as Step["waitsFor"]) : es.waitsFor,
+            sendsTo: sd && Array.isArray(sd.items) ? (sd as unknown as Step["sendsTo"]) : es.sendsTo,
+            approver: ap && Array.isArray(ap.positions) ? (ap as unknown as Step["approver"]) : es.approver,
+            decision: dc && typeof dc.enabled === "boolean" ? ({ ...es.decision, ...dc } as Step["decision"]) : es.decision,
+          };
+        })
+      : base.steps;
+    return {
+      name: typeof j.name === "string" ? j.name : "",
+      trigger: typeof j.trigger === "string" ? j.trigger : "",
+      frequency: typeof j.frequency === "string" ? j.frequency : "",
+      steps,
+    };
+  });
 }
 
 type JobErrors = { name: boolean; steps: Set<number> };
@@ -39,9 +75,10 @@ export function FormClient({
       const raw = localStorage.getItem(draftKey(position.id));
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed?.jobs) && parsed.jobs.length) {
+        const nj = normalizeJobs(parsed?.jobs);
+        if (nj) {
           // eslint-disable-next-line react-hooks/set-state-in-effect
-          setJobs(parsed.jobs);
+          setJobs(nj);
         }
         if (typeof parsed?.blockers === "string") {
           // eslint-disable-next-line react-hooks/set-state-in-effect

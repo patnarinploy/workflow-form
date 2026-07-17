@@ -11,6 +11,10 @@ import {
   SendItem,
   emptyWaitItem,
   emptySendItem,
+  emptyWaits,
+  emptySends,
+  emptyApprover,
+  emptyDecision,
 } from "@/lib/types";
 
 const EXTERNAL: ["external"] = ["external"];
@@ -309,11 +313,11 @@ export function StepEditor({
           />
 
           <div className="flex flex-col gap-2 mt-2.5">
-            <WaitsEditor group={step.waitsFor} onChange={(waitsFor) => onChange({ ...step, waitsFor })} />
-            <SendsEditor group={step.sendsTo} onChange={(sendsTo) => onChange({ ...step, sendsTo })} />
-            <ApproverEditor group={step.approver} onChange={(approver) => onChange({ ...step, approver })} />
+            <WaitsEditor group={step.waitsFor ?? emptyWaits()} onChange={(waitsFor) => onChange({ ...step, waitsFor })} />
+            <SendsEditor group={step.sendsTo ?? emptySends()} onChange={(sendsTo) => onChange({ ...step, sendsTo })} />
+            <ApproverEditor group={step.approver ?? emptyApprover()} onChange={(approver) => onChange({ ...step, approver })} />
             <DecisionEditor
-              decision={step.decision}
+              decision={step.decision ?? emptyDecision()}
               onChange={(decision) => onChange({ ...step, decision })}
               positionId={positionId}
               siblings={siblings}
