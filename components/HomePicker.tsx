@@ -98,6 +98,13 @@ export function HomePicker() {
         >
           เริ่มกรอก
         </button>
+
+        <div className="mt-6 pt-5 border-t border-[var(--line)] text-center">
+          <a href="/my-projects" className="text-[13px] font-semibold text-[var(--accent)]">
+            อัปเดตโปรเจกต์ที่คุณดูแล →
+          </a>
+          <p className="text-[11.5px] text-[var(--faint)] mt-1">คนละส่วนกับผังงาน · อัปเดตได้เรื่อยๆ</p>
+        </div>
       </div>
     </div>
   );

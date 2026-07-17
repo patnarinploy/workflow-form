@@ -3,8 +3,12 @@
 import { useState } from "react";
 import { Reconciliation, PairEdge } from "@/lib/reconcile";
 import { POSITIONS, positionName, getPosition } from "@/lib/positions";
+import { staffLabel } from "@/lib/staff";
 import { FlowChart } from "./FlowChart";
+import { AdminNav } from "./AdminNav";
 import { LogoutButton } from "@/app/admin/LogoutButton";
+
+export type ProjectProgress = { filled: number; total: number; missingStaff: string[] };
 
 type Tab = "progress" | "flow" | "mismatch" | "workload";
 
@@ -18,9 +22,11 @@ const TABS: { key: Tab; label: string }[] = [
 export function AdminDashboard({
   result,
   blockers,
+  projectProgress,
 }: {
   result: Reconciliation;
   blockers: { positionId: string; text: string }[];
+  projectProgress: ProjectProgress;
 }) {
   const [tab, setTab] = useState<Tab>("progress");
   const mismatchCount = result.oneSided.filter((e) => e.status === "mismatch").length;
@@ -36,6 +42,8 @@ export function AdminDashboard({
         </div>
         <LogoutButton />
       </div>
+
+      <AdminNav />
 
       <div className="flex gap-2 mb-3">
         <a href="/api/admin/export/json" className="text-[12.5px] font-semibold px-3.5 py-1.5 rounded-[8px] bg-[var(--accent)] text-white">
@@ -63,7 +71,7 @@ export function AdminDashboard({
         ))}
       </div>
 
-      {tab === "progress" && <ProgressTab result={result} blockers={blockers} />}
+      {tab === "progress" && <ProgressTab result={result} blockers={blockers} projectProgress={projectProgress} />}
       {tab === "flow" && <FlowChart structure={result.structure} edges={result.edges} />}
       {tab === "mismatch" && <MismatchTab result={result} />}
       {tab === "workload" && <WorkloadTab result={result} />}
@@ -73,18 +81,47 @@ export function AdminDashboard({
 
 /* ---------------- Progress ---------------- */
 
-function ProgressTab({ result, blockers }: { result: Reconciliation; blockers: { positionId: string; text: string }[] }) {
+function ProgressTab({
+  result,
+  blockers,
+  projectProgress,
+}: {
+  result: Reconciliation;
+  blockers: { positionId: string; text: string }[];
+  projectProgress: ProjectProgress;
+}) {
   const pct = Math.round((result.submittedIds.length / POSITIONS.length) * 100);
   const submitted = new Set(result.submittedIds);
+  const pp = projectProgress;
+  const ppPct = pp.total > 0 ? Math.round((pp.filled / pp.total) * 100) : 0;
   return (
     <div>
-      <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[16px] p-5 mb-5">
-        <div className="flex justify-between items-baseline mb-2">
-          <span className="font-semibold">กรอกแล้ว {result.submittedIds.length} จาก {POSITIONS.length} ตำแหน่ง</span>
-          <span className="font-disp font-bold text-xl text-[var(--accent)]">{pct}%</span>
+      <div className="grid gap-4 md:grid-cols-2 mb-5">
+        <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[16px] p-5">
+          <div className="text-[12px] font-semibold text-[var(--faint)] uppercase tracking-wide mb-1.5">ผังงาน · ตำแหน่ง</div>
+          <div className="flex justify-between items-baseline mb-2">
+            <span className="font-semibold">กรอกแล้ว {result.submittedIds.length} จาก {POSITIONS.length} ตำแหน่ง</span>
+            <span className="font-disp font-bold text-xl text-[var(--accent)]">{pct}%</span>
+          </div>
+          <div className="h-2.5 rounded-full bg-[var(--line)] overflow-hidden">
+            <div className="h-full bg-[var(--accent)] transition-all" style={{ width: `${pct}%` }} />
+          </div>
         </div>
-        <div className="h-2.5 rounded-full bg-[var(--line)] overflow-hidden">
-          <div className="h-full bg-[var(--accent)] transition-all" style={{ width: `${pct}%` }} />
+        <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[16px] p-5">
+          <div className="text-[12px] font-semibold text-[var(--faint)] uppercase tracking-wide mb-1.5">โปรเจกต์ · คน</div>
+          <div className="flex justify-between items-baseline mb-2">
+            <span className="font-semibold">กรอกแล้ว {pp.filled} จาก {pp.total} คน</span>
+            <span className="font-disp font-bold text-xl text-[#2E7CD6]">{ppPct}%</span>
+          </div>
+          <div className="h-2.5 rounded-full bg-[var(--line)] overflow-hidden">
+            <div className="h-full transition-all" style={{ width: `${ppPct}%`, background: "#2E7CD6" }} />
+          </div>
+          {pp.missingStaff.length > 0 && (
+            <details className="mt-3">
+              <summary className="text-[12.5px] text-[var(--muted)] cursor-pointer">ยังไม่ได้กรอกโปรเจกต์ ({pp.missingStaff.length})</summary>
+              <div className="text-[12.5px] text-[var(--faint)] mt-1.5 leading-relaxed">{pp.missingStaff.map(staffLabel).join(" · ")}</div>
+            </details>
+          )}
         </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
