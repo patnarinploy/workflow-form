@@ -1,22 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  POSITIONS,
-  GROUP_ORDER,
-  GROUP_LABEL,
-  positionName,
-  positionMembersLabel,
-  getPosition,
-  SpecialValue,
-  SPECIAL_LABEL,
-  PositionGroup,
-} from "@/lib/positions";
+import { SpecialValue, SPECIAL_LABEL } from "@/lib/positions";
+import { useDirectory } from "./DirectoryProvider";
 import { specialToken, isSpecialToken, specialOf } from "@/lib/types";
-
-function tokenChip(token: string): string {
-  return isSpecialToken(token) ? SPECIAL_LABEL[specialOf(token)] : positionName(token);
-}
 
 type Props = {
   value: string[];
@@ -35,10 +22,14 @@ export function PositionSelect({
   placeholder = "เลือกตำแหน่ง…",
   error,
 }: Props) {
+  const { dir } = useDirectory();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const tokenChip = (token: string): string =>
+    isSpecialToken(token) ? SPECIAL_LABEL[specialOf(token)] : dir.positionName(token);
 
   useEffect(() => {
     if (!open) return;
@@ -64,19 +55,21 @@ export function PositionSelect({
   );
 
   const grouped = useMemo(() => {
-    const out: { group: PositionGroup; items: typeof POSITIONS }[] = [];
-    for (const g of GROUP_ORDER) {
-      const items = POSITIONS.filter(
-        (p) =>
-          p.group === g &&
-          (!q ||
+    const out: { group: string; items: { id: string; name: string; members: string[] }[] }[] = [];
+    for (const g of dir.groups) {
+      const items = dir
+        .positionsInGroup(g)
+        .map((p) => ({ id: p.id, name: p.name, members: dir.positionMembers(p.id) }))
+        .filter(
+          (p) =>
+            !q ||
             p.name.toLowerCase().includes(q) ||
-            p.members.some((m) => m.toLowerCase().includes(q)))
-      );
+            p.members.some((m) => m.toLowerCase().includes(q))
+        );
       if (items.length) out.push({ group: g, items });
     }
     return out;
-  }, [q]);
+  }, [dir, q]);
 
   const isSelected = (token: string) => value.includes(token);
 
@@ -175,7 +168,7 @@ export function PositionSelect({
             {grouped.map(({ group, items }) => (
               <div key={group}>
                 <div className="px-3 pt-2 pb-1 text-[11px] font-semibold text-[var(--faint)] uppercase tracking-wide bg-[var(--bg)]/60 sticky top-0">
-                  {GROUP_LABEL[group]}
+                  {group}
                 </div>
                 {items.map((p) => {
                   const sel = isSelected(p.id);
@@ -233,5 +226,3 @@ export function PositionCombobox({
     />
   );
 }
-
-export { getPosition, positionMembersLabel };

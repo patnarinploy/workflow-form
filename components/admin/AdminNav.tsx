@@ -7,6 +7,8 @@ const LINKS = [
   { href: "/admin/projects", label: "จัดการโปรเจกต์" },
   { href: "/admin/matrix", label: "ตารางภาระงาน" },
   { href: "/admin/insights", label: "ข้อสังเกต" },
+  { href: "/admin/staff", label: "จัดการพนักงาน" },
+  { href: "/admin/positions", label: "จัดการตำแหน่ง" },
 ];
 
 export function AdminNav() {

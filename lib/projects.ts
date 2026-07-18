@@ -1,5 +1,3 @@
-import { STAFF_ORDERED } from "./staff";
-
 export type ProjectStatus = "planning" | "active" | "on_hold" | "done";
 export type Involvement = "high" | "medium" | "low";
 
@@ -57,7 +55,14 @@ export type PersonSummary = {
   score: number; // (high*3) + (medium*2) + (low*1) — RAW score, compare within team only
 };
 
-export function summarizePeople(activeProjectIds: Set<string>, assignments: Assignment[]): PersonSummary[] {
+// Summaries are produced for the given staff ids, in that order. Pass the
+// ordered staff you want rows for (e.g. all staff for the matrix, active only
+// for thresholds). Inactive staff should be excluded from threshold inputs.
+export function summarizePeople(
+  activeProjectIds: Set<string>,
+  assignments: Assignment[],
+  staffIds: string[]
+): PersonSummary[] {
   const byPerson = new Map<string, Assignment[]>();
   for (const a of assignments) {
     if (!activeProjectIds.has(a.project_id)) continue;
@@ -65,13 +70,13 @@ export function summarizePeople(activeProjectIds: Set<string>, assignments: Assi
     arr.push(a);
     byPerson.set(a.person_id, arr);
   }
-  return STAFF_ORDERED.map((s) => {
-    const as = byPerson.get(s.id) ?? [];
+  return staffIds.map((id) => {
+    const as = byPerson.get(id) ?? [];
     const high = as.filter((a) => a.involvement === "high").length;
     const medium = as.filter((a) => a.involvement === "medium").length;
     const low = as.filter((a) => a.involvement === "low").length;
     return {
-      staffId: s.id,
+      staffId: id,
       high,
       medium,
       low,

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ResponseRow, JobRow, StepRow, StepLinkRow, StepLinkTargetRow, StepDecisionRow } from "./types";
-import { POSITIONS, memberCount } from "./positions";
+import { loadDirectory } from "./directory";
 
 export type RawData = {
   responses: ResponseRow[];
@@ -88,7 +88,14 @@ function splitTargets(targets: StepLinkTargetRow[]) {
   return byLink;
 }
 
-export function reconcile(data: RawData): Reconciliation {
+// `positions` and `memberCount` are supplied by the caller from the DB-backed
+// directory (they used to be module constants).
+export function reconcile(
+  data: RawData,
+  positions: { id: string }[],
+  memberCount: (id: string) => number
+): Reconciliation {
+  const positionIdSet = new Set(positions.map((p) => p.id));
   const ownerByResponse = new Map<string, string>();
   const filledBy: Record<string, string> = {};
   for (const r of data.responses) {
@@ -197,7 +204,7 @@ export function reconcile(data: RawData): Reconciliation {
   }
   const involved = new Set<string>([...submittedIds, ...inbound.keys(), ...outbound.keys(), ...approverCount.keys()]);
   const workload: Workload[] = [...involved]
-    .filter((id) => POSITIONS.some((p) => p.id === id))
+    .filter((id) => positionIdSet.has(id))
     .map((id) => {
       const steps = stepCount.get(id) ?? 0;
       const heads = memberCount(id) || 1;
@@ -279,7 +286,7 @@ export function reconcile(data: RawData): Reconciliation {
       })),
   }));
 
-  const missingIds = POSITIONS.filter((p) => !submittedSet.has(p.id)).map((p) => p.id);
+  const missingIds = positions.filter((p) => !submittedSet.has(p.id)).map((p) => p.id);
 
   return {
     submittedIds,
@@ -296,7 +303,8 @@ export function reconcile(data: RawData): Reconciliation {
 export async function loadAndReconcile(
   supabase: SupabaseClient
 ): Promise<{ data: RawData; result: Reconciliation }> {
-  const [{ data: responses }, { data: jobs }, { data: steps }, { data: links }, { data: targets }, { data: decisions }] = await Promise.all([
+  const [dir, { data: responses }, { data: jobs }, { data: steps }, { data: links }, { data: targets }, { data: decisions }] = await Promise.all([
+    loadDirectory(supabase),
     supabase.from("responses").select("*"),
     supabase.from("jobs").select("*"),
     supabase.from("steps").select("*"),
@@ -312,5 +320,5 @@ export async function loadAndReconcile(
     targets: (targets as StepLinkTargetRow[] | null) ?? [],
     decisions: (decisions as StepDecisionRow[] | null) ?? [],
   };
-  return { data: raw, result: reconcile(raw) };
+  return { data: raw, result: reconcile(raw, dir.activePositions, dir.memberCount) };
 }

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { getPosition } from "@/lib/positions";
+import { createServiceClient } from "@/lib/supabase/server";
+import { loadDirectory } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,8 @@ export default async function ThanksPage({
   searchParams: Promise<{ pos?: string; jobs?: string; steps?: string }>;
 }) {
   const { pos, jobs, steps } = await searchParams;
-  const position = pos ? getPosition(pos) : undefined;
+  const dir = await loadDirectory(createServiceClient());
+  const position = pos ? dir.getPosition(pos) : undefined;
   const nJobs = Number(jobs) || 0;
   const nSteps = Number(steps) || 0;
 

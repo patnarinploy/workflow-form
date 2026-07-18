@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { loadAndReconcile } from "@/lib/reconcile";
-import { getPosition, positionName } from "@/lib/positions";
+import { loadDirectory } from "@/lib/directory";
 import { JobRow, StepRow, StepLinkRow, StepLinkTargetRow, StepDecisionRow } from "@/lib/types";
 
 export async function GET() {
   const supabase = createServiceClient();
-  const { data, result } = await loadAndReconcile(supabase);
+  const [{ data, result }, dir] = await Promise.all([loadAndReconcile(supabase), loadDirectory(supabase)]);
+  const positionName = (id: string) => dir.positionName(id);
+  const getPosition = (id: string) => dir.getPosition(id);
 
   const targetsByLink = new Map<string, StepLinkTargetRow[]>();
   for (const t of data.targets) {
@@ -91,7 +93,7 @@ export async function GET() {
       position_id: r.position_id,
       name: p?.name ?? r.position_id,
       group: p?.group,
-      members: p?.members,
+      members: p ? dir.positionMembers(p.id) : undefined,
       filled_by: r.filled_by,
       blockers: r.blockers,
       submitted_at: r.updated_at,

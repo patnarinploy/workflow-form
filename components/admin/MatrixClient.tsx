@@ -1,26 +1,33 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { STAFF_ORDERED, staffLabel, getStaff } from "@/lib/staff";
-import { GROUP_ORDER, GROUP_LABEL, PositionGroup, getPosition } from "@/lib/positions";
+import { Position, Staff, makeDirectory } from "@/lib/directory";
 import {
   Project,
   Assignment,
-  Involvement,
   INVOLVEMENT_LABEL,
   INVOLVEMENT_COLOR,
   summarizePeople,
   topScoreThreshold,
 } from "@/lib/projects";
 
-const groupOfStaff = (id: string): PositionGroup | undefined => getPosition(getStaff(id)?.positionId ?? "")?.group;
-
-export function MatrixClient({ projects, assignments }: { projects: Project[]; assignments: Assignment[] }) {
+export function MatrixClient({
+  projects,
+  assignments,
+  positions,
+  staff,
+}: {
+  projects: Project[];
+  assignments: Assignment[];
+  positions: Position[];
+  staff: Staff[];
+}) {
+  const dir = useMemo(() => makeDirectory(positions, staff), [positions, staff]);
   const [view, setView] = useState<"people" | "projects">("people");
   const [sortByScore, setSortByScore] = useState(false);
-  const [groups, setGroups] = useState<Set<PositionGroup>>(new Set(GROUP_ORDER));
+  const [groups, setGroups] = useState<Set<string>>(() => new Set(dir.groups));
 
-  const toggleGroup = (g: PositionGroup) =>
+  const toggleGroup = (g: string) =>
     setGroups((prev) => {
       const n = new Set(prev);
       if (n.has(g)) n.delete(g);
@@ -28,27 +35,29 @@ export function MatrixClient({ projects, assignments }: { projects: Project[]; a
       return n;
     });
 
-  const { activeIds, summaries, summaryById, maxScore, topThreshold, cell } = useMemo(() => {
+  const { summaryById, maxScore, topThreshold, cell } = useMemo(() => {
     const activeIds = new Set(projects.map((p) => p.id));
-    const summaries = summarizePeople(activeIds, assignments);
-    const summaryById = new Map(summaries.map((s) => [s.staffId, s]));
-    const maxScore = Math.max(1, ...summaries.map((s) => s.score));
-    const topThreshold = topScoreThreshold(summaries);
-    const cell = new Map<string, Assignment>();
-    for (const a of assignments) cell.set(`${a.person_id}:${a.project_id}`, a);
-    return { activeIds, summaries, summaryById, maxScore, topThreshold, cell };
-  }, [projects, assignments]);
+    const allSummaries = summarizePeople(activeIds, assignments, dir.staffOrderedAll.map((s) => s.id));
+    const summaryById = new Map(allSummaries.map((s) => [s.staffId, s]));
+    // Threshold + bar scale use ACTIVE staff only (inactive excluded from load).
+    const activeSummaries = allSummaries.filter((s) => dir.getStaff(s.staffId)?.isActive);
+    const maxScore = Math.max(1, ...activeSummaries.map((s) => s.score));
+    const topThreshold = topScoreThreshold(activeSummaries);
+    const cellMap = new Map<string, Assignment>();
+    for (const a of assignments) cellMap.set(`${a.person_id}:${a.project_id}`, a);
+    return { summaryById, maxScore, topThreshold, cell: cellMap };
+  }, [projects, assignments, dir]);
 
   const visibleStaff = useMemo(() => {
-    let list = STAFF_ORDERED.filter((s) => {
-      const g = groupOfStaff(s.id);
+    let list = dir.staffOrderedAll.filter((s) => {
+      const g = dir.staffGroup(s.id);
       return g ? groups.has(g) : true;
     });
     if (sortByScore) {
       list = [...list].sort((a, b) => (summaryById.get(b.id)?.score ?? 0) - (summaryById.get(a.id)?.score ?? 0));
     }
     return list;
-  }, [groups, sortByScore, summaryById]);
+  }, [dir, groups, sortByScore, summaryById]);
 
   const isTop = (score: number) => score > 0 && score >= topThreshold;
 
@@ -58,12 +67,14 @@ export function MatrixClient({ projects, assignments }: { projects: Project[]; a
     return (
       <div className="flex items-center gap-2 min-w-[120px]">
         <div className="flex-1 h-2.5 rounded-full bg-[var(--bg)] overflow-hidden">
-          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+          <div className="h-full rounded-full" style={{ width: `${Math.min(100, pct)}%`, background: color }} />
         </div>
         <span className="text-[12.5px] font-semibold tabular-nums" style={{ color }}>{score}</span>
       </div>
     );
   }
+
+  const groupsForRows = dir.groups.filter((g) => groups.has(g));
 
   return (
     <div>
@@ -77,13 +88,13 @@ export function MatrixClient({ projects, assignments }: { projects: Project[]; a
           </button>
         </div>
         <span className="text-[12px] text-[var(--faint)] ml-1">กรอง:</span>
-        {GROUP_ORDER.map((g) => (
+        {dir.groups.map((g) => (
           <button
             key={g}
             onClick={() => toggleGroup(g)}
             className={`text-[12px] font-semibold px-2.5 py-1 rounded-full border ${groups.has(g) ? "bg-[var(--accent-soft)] border-[var(--accent-line)] text-[#0F5F47]" : "text-[var(--faint)] border-[var(--line)]"}`}
           >
-            {GROUP_LABEL[g]}
+            {g}
           </button>
         ))}
         <a href="/api/admin/projects/csv" className="ml-auto text-[12.5px] font-semibold text-[var(--accent)] border border-[var(--accent-line)] rounded-full px-3 py-1.5">
@@ -113,15 +124,22 @@ export function MatrixClient({ projects, assignments }: { projects: Project[]; a
                 </tr>
               </thead>
               <tbody>
-                {(sortByScore ? [{ group: null as PositionGroup | null, items: visibleStaff }] : GROUP_ORDER.filter((g) => groups.has(g)).map((g) => ({ group: g, items: visibleStaff.filter((s) => groupOfStaff(s.id) === g) }))).map(
+                {(sortByScore
+                  ? [{ group: null as string | null, items: visibleStaff }]
+                  : groupsForRows.map((g) => ({ group: g, items: visibleStaff.filter((s) => dir.staffGroup(s.id) === g) }))
+                ).map(
                   (section) =>
                     section.items.length > 0 && (
                       <ByGroup key={section.group ?? "all"} group={section.group}>
                         {section.items.map((s) => {
                           const sum = summaryById.get(s.id)!;
+                          const inactive = !s.isActive;
                           return (
-                            <tr key={s.id} className="border-b border-[var(--line)] last:border-0">
-                              <td className="sticky left-0 z-10 bg-[var(--surface)] px-3 py-1.5 whitespace-nowrap">{staffLabel(s.id)}</td>
+                            <tr key={s.id} className={`border-b border-[var(--line)] last:border-0 ${inactive ? "opacity-45" : ""}`}>
+                              <td className="sticky left-0 z-10 bg-[var(--surface)] px-3 py-1.5 whitespace-nowrap">
+                                {dir.staffLabel(s.id)}
+                                {inactive && <span className="ml-1.5 text-[10px] rounded-full border border-[var(--line)] px-1.5 py-0.5 text-[var(--faint)]">ปิดใช้งาน</span>}
+                              </td>
                               {projects.map((p) => {
                                 const a = cell.get(`${s.id}:${p.id}`);
                                 return (
@@ -150,13 +168,13 @@ export function MatrixClient({ projects, assignments }: { projects: Project[]; a
             </table>
           </div>
           <p className="text-[12px] text-[var(--faint)] mt-3 leading-relaxed">
-            คะแนนนี้มาจากที่แต่ละคนประเมินตัวเอง (สูง×3 + กลาง×2 + ต่ำ×1) ใช้เทียบกันในทีม ไม่ใช่ % ของเวลาทำงานจริง · ★ = เจ้าของงานหลัก · สีส้ม = ภาระอยู่ใน 25% บนสุด
+            คะแนนนี้มาจากที่แต่ละคนประเมินตัวเอง (สูง×3 + กลาง×2 + ต่ำ×1) ใช้เทียบกันในทีม ไม่ใช่ % ของเวลาทำงานจริง · ★ = เจ้าของงานหลัก · สีส้ม = ภาระอยู่ใน 25% บนสุด · คนที่ปิดใช้งานไม่ถูกนับในฐานคำนวณ
           </p>
         </>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {projects.map((p) => {
-            const people = STAFF_ORDERED.filter((s) => cell.has(`${s.id}:${p.id}`));
+            const people = dir.staffOrderedAll.filter((s) => cell.has(`${s.id}:${p.id}`));
             return (
               <div key={p.id} className="bg-[var(--surface)] border border-[var(--line)] rounded-[14px] p-4">
                 <div className="font-semibold text-[14.5px] mb-2">
@@ -169,9 +187,9 @@ export function MatrixClient({ projects, assignments }: { projects: Project[]; a
                     {people.map((s) => {
                       const a = cell.get(`${s.id}:${p.id}`)!;
                       return (
-                        <li key={s.id} className="flex items-center gap-2 text-[12.5px]">
+                        <li key={s.id} className={`flex items-center gap-2 text-[12.5px] ${s.isActive ? "" : "opacity-45"}`}>
                           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: INVOLVEMENT_COLOR[a.involvement] }} />
-                          <span>{staffLabel(s.id)}</span>
+                          <span>{dir.staffLabel(s.id)}</span>
                           <span className="text-[var(--faint)]">· {INVOLVEMENT_LABEL[a.involvement]}</span>
                           {a.is_owner && <span className="text-[#B65418]" title="เจ้าของงานหลัก">★</span>}
                         </li>
@@ -188,12 +206,12 @@ export function MatrixClient({ projects, assignments }: { projects: Project[]; a
   );
 }
 
-function ByGroup({ group, children }: { group: PositionGroup | null; children: React.ReactNode }) {
+function ByGroup({ group, children }: { group: string | null; children: React.ReactNode }) {
   return (
     <>
       {group && (
         <tr className="bg-[var(--bg)]/60">
-          <td className="sticky left-0 z-10 bg-[var(--bg)] px-3 py-1 text-[11px] font-semibold text-[var(--faint)] uppercase tracking-wide">{GROUP_LABEL[group]}</td>
+          <td className="sticky left-0 z-10 bg-[var(--bg)] px-3 py-1 text-[11px] font-semibold text-[var(--faint)] uppercase tracking-wide">{group}</td>
           <td className="text-[11px] text-[var(--faint)] px-2 py-1" colSpan={99}></td>
         </tr>
       )}

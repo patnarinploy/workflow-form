@@ -1,7 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { AdminNav } from "@/components/admin/AdminNav";
-import { getStaff, staffLabel } from "@/lib/staff";
-import { positionName } from "@/lib/positions";
+import { loadDirectory } from "@/lib/directory";
 import {
   Project,
   Assignment,
@@ -25,9 +24,10 @@ function Section({ title, hint, empty, children }: { title: string; hint: string
 
 export default async function AdminInsightsPage() {
   const supabase = createServiceClient();
-  const [{ data: projRows }, { data: asgRows }] = await Promise.all([
+  const [{ data: projRows }, { data: asgRows }, dir] = await Promise.all([
     supabase.from("projects").select("*"),
     supabase.from("assignments").select("*"),
+    loadDirectory(supabase),
   ]);
   const allProjects = (projRows as Project[] | null) ?? [];
   const projects = allProjects.filter(isActive);
@@ -35,8 +35,8 @@ export default async function AdminInsightsPage() {
   const activeIds = new Set(projects.map((p) => p.id));
   const projectName = new Map(projects.map((p) => [p.id, p.name]));
 
-  const summaries = summarizePeople(activeIds, assignments);
-  const byId = new Map(summaries.map((s) => [s.staffId, s]));
+  // Insights consider ACTIVE staff only (deactivated people are excluded from load).
+  const summaries = summarizePeople(activeIds, assignments, dir.staffOrdered.map((s) => s.id));
   const topT = topScoreThreshold(summaries);
   const botT = bottomScoreThreshold(summaries);
 
@@ -65,7 +65,7 @@ export default async function AdminInsightsPage() {
   for (const p of projects) {
     const set = new Set<string>();
     for (const a of byProject.get(p.id) ?? []) {
-      const pos = getStaff(a.person_id)?.positionId;
+      const pos = dir.getStaff(a.person_id)?.positionId;
       if (pos) set.add(pos);
     }
     posByProject.set(p.id, set);
@@ -93,7 +93,7 @@ export default async function AdminInsightsPage() {
           <ul className="flex flex-col gap-1.5">
             {topLoad.map((s) => (
               <li key={s.staffId} className={li}>
-                <b>{staffLabel(s.staffId)}</b>
+                <b>{dir.staffLabel(s.staffId)}</b>
                 <span className="text-[#B65418] font-semibold">คะแนน {s.score}</span>
                 <span className="text-[var(--faint)]">— {personProjects(s.staffId).join(", ")}</span>
               </li>
@@ -105,7 +105,7 @@ export default async function AdminInsightsPage() {
           <ul className="flex flex-col gap-1.5">
             {available.map((s) => (
               <li key={s.staffId} className={li}>
-                <b>{staffLabel(s.staffId)}</b>
+                <b>{dir.staffLabel(s.staffId)}</b>
                 <span className="text-[var(--muted)]">คะแนน {s.score}</span>
                 <span className="text-[var(--faint)]">— {personProjects(s.staffId).join(", ")}</span>
               </li>
@@ -114,14 +114,14 @@ export default async function AdminInsightsPage() {
         </Section>
 
         <Section title="คนที่ยังไม่มีโปรเจกต์เลย" hint="อาจยังไม่ได้กรอก — เช็คกับแท็บความคืบหน้าก่อนสรุป" empty={noProjects.length === 0}>
-          <div className="text-[13px] text-[var(--ink)]">{noProjects.map((s) => staffLabel(s.staffId)).join(" · ")}</div>
+          <div className="text-[13px] text-[var(--ink)]">{noProjects.map((s) => dir.staffLabel(s.staffId)).join(" · ")}</div>
         </Section>
 
         <Section title="คนที่ถือระดับสูงมากกว่า 1 โปรเจกต์" hint="เสี่ยงที่สุด เพราะงานหลักชนกัน" empty={multiHigh.length === 0}>
           <ul className="flex flex-col gap-1.5">
             {multiHigh.map((s) => (
               <li key={s.staffId} className={li}>
-                <b>{staffLabel(s.staffId)}</b>
+                <b>{dir.staffLabel(s.staffId)}</b>
                 <span className="text-[#B65418] font-semibold">สูง {s.high} โปรเจกต์</span>
                 <span className="text-[var(--faint)]">
                   — {(byPerson.get(s.staffId) ?? []).filter((a) => a.involvement === "high").map((a) => projectName.get(a.project_id)).join(", ")}
@@ -136,7 +136,7 @@ export default async function AdminInsightsPage() {
             {singleHigh.map(({ p, highs }) => (
               <li key={p.id} className={li}>
                 <b>{p.name}</b>
-                <span className="text-[var(--faint)]">— มีแค่ {staffLabel(highs[0].person_id)}</span>
+                <span className="text-[var(--faint)]">— มีแค่ {dir.staffLabel(highs[0].person_id)}</span>
               </li>
             ))}
           </ul>
@@ -151,7 +151,7 @@ export default async function AdminInsightsPage() {
             {missingByProject.map(({ p, missing }) => (
               <li key={p.id} className={li}>
                 <b>{p.name}</b>
-                <span className="text-[var(--faint)]">— ขาด {missing.map(positionName).join(", ")}</span>
+                <span className="text-[var(--faint)]">— ขาด {missing.map((id) => dir.positionName(id)).join(", ")}</span>
               </li>
             ))}
           </ul>

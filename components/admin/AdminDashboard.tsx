@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { Reconciliation, PairEdge } from "@/lib/reconcile";
-import { POSITIONS, positionName, getPosition } from "@/lib/positions";
-import { staffLabel } from "@/lib/staff";
+import { useDirectory } from "@/components/DirectoryProvider";
 import { FlowChart } from "./FlowChart";
 import { AdminNav } from "./AdminNav";
 import { LogoutButton } from "@/app/admin/LogoutButton";
@@ -28,6 +27,7 @@ export function AdminDashboard({
   blockers: { positionId: string; text: string }[];
   projectProgress: ProjectProgress;
 }) {
+  const { dir } = useDirectory();
   const [tab, setTab] = useState<Tab>("progress");
   const mismatchCount = result.oneSided.filter((e) => e.status === "mismatch").length;
 
@@ -37,7 +37,7 @@ export function AdminDashboard({
         <div>
           <h1 className="font-disp font-bold text-2xl">Admin · Workflow</h1>
           <p className="text-[13px] text-[var(--muted)] mt-0.5">
-            True CJ Creations — ส่งแล้ว {result.submittedIds.length}/{POSITIONS.length} ตำแหน่ง
+            True CJ Creations — ส่งแล้ว {result.submittedIds.length}/{dir.activePositions.length} ตำแหน่ง
           </p>
         </div>
         <LogoutButton />
@@ -90,7 +90,8 @@ function ProgressTab({
   blockers: { positionId: string; text: string }[];
   projectProgress: ProjectProgress;
 }) {
-  const pct = Math.round((result.submittedIds.length / POSITIONS.length) * 100);
+  const { dir } = useDirectory();
+  const pct = Math.round((result.submittedIds.length / dir.activePositions.length) * 100);
   const submitted = new Set(result.submittedIds);
   const pp = projectProgress;
   const ppPct = pp.total > 0 ? Math.round((pp.filled / pp.total) * 100) : 0;
@@ -100,7 +101,7 @@ function ProgressTab({
         <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[16px] p-5">
           <div className="text-[12px] font-semibold text-[var(--faint)] uppercase tracking-wide mb-1.5">ผังงาน · ตำแหน่ง</div>
           <div className="flex justify-between items-baseline mb-2">
-            <span className="font-semibold">กรอกแล้ว {result.submittedIds.length} จาก {POSITIONS.length} ตำแหน่ง</span>
+            <span className="font-semibold">กรอกแล้ว {result.submittedIds.length} จาก {dir.activePositions.length} ตำแหน่ง</span>
             <span className="font-disp font-bold text-xl text-[var(--accent)]">{pct}%</span>
           </div>
           <div className="h-2.5 rounded-full bg-[var(--line)] overflow-hidden">
@@ -119,7 +120,7 @@ function ProgressTab({
           {pp.missingStaff.length > 0 && (
             <details className="mt-3">
               <summary className="text-[12.5px] text-[var(--muted)] cursor-pointer">ยังไม่ได้กรอกโปรเจกต์ ({pp.missingStaff.length})</summary>
-              <div className="text-[12.5px] text-[var(--faint)] mt-1.5 leading-relaxed">{pp.missingStaff.map(staffLabel).join(" · ")}</div>
+              <div className="text-[12.5px] text-[var(--faint)] mt-1.5 leading-relaxed">{pp.missingStaff.map(dir.staffLabel).join(" · ")}</div>
             </details>
           )}
         </div>
@@ -132,8 +133,8 @@ function ProgressTab({
             <ul className="flex flex-col gap-1.5">
               {result.missingIds.map((id) => (
                 <li key={id} className="text-[13.5px]">
-                  <span className="font-medium">{positionName(id)}</span>
-                  <span className="text-[var(--faint)] text-[12px]"> — {getPosition(id)?.members.join(", ")}</span>
+                  <span className="font-medium">{dir.positionName(id)}</span>
+                  <span className="text-[var(--faint)] text-[12px]"> — {dir.positionMembers(id).join(", ")}</span>
                 </li>
               ))}
             </ul>
@@ -144,7 +145,7 @@ function ProgressTab({
             <p className="text-[13px] text-[var(--faint)]">ยังไม่มีตำแหน่งไหนกรอก</p>
           ) : (
             <ul className="flex flex-col gap-1.5">
-              {POSITIONS.filter((p) => submitted.has(p.id)).map((p) => (
+              {dir.activePositions.filter((p) => submitted.has(p.id)).map((p) => (
                 <li key={p.id} className="text-[13.5px]">
                   <span className="font-medium">{p.name}</span>
                   {result.filledBy[p.id] && <span className="text-[var(--faint)] text-[12px]"> — โดย {result.filledBy[p.id]}</span>}
@@ -160,7 +161,7 @@ function ProgressTab({
             <ul className="flex flex-col gap-2.5">
               {blockers.map((b) => (
                 <li key={b.positionId} className="text-[13.5px]">
-                  <span className="font-semibold">{positionName(b.positionId)}:</span>{" "}
+                  <span className="font-semibold">{dir.positionName(b.positionId)}:</span>{" "}
                   <span className="text-[var(--muted)]">{b.text}</span>
                 </li>
               ))}
@@ -193,15 +194,16 @@ function MismatchTab({ result }: { result: Reconciliation }) {
 }
 
 function EdgeItem({ edge }: { edge: PairEdge }) {
+  const { dir } = useDirectory();
   const [open, setOpen] = useState(false);
   const color = edge.status === "matched" ? "#128A64" : edge.status === "mismatch" ? "#B65418" : "#93A099";
   return (
     <div className="border border-[var(--line)] rounded-[10px] overflow-hidden">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-3.5 py-2.5 text-left hover:bg-[var(--bg)]">
         <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
-        <span className="text-[13px] font-medium">{positionName(edge.from)}</span>
+        <span className="text-[13px] font-medium">{dir.positionName(edge.from)}</span>
         <span className="text-[var(--faint)]">→</span>
-        <span className="text-[13px] font-medium">{positionName(edge.to)}</span>
+        <span className="text-[13px] font-medium">{dir.positionName(edge.to)}</span>
         <span className="ml-auto text-[11px] text-[var(--faint)] shrink-0">
           {edge.senderAsserted ? "ผู้ส่ง✓" : "ผู้ส่ง✗"} · {edge.receiverAsserted ? "ผู้รับ✓" : "ผู้รับ✗"}
         </span>
@@ -209,19 +211,19 @@ function EdgeItem({ edge }: { edge: PairEdge }) {
       {open && (
         <div className="px-3.5 pb-3 pt-1 text-[12.5px] bg-[var(--bg)]/40 flex flex-col gap-2">
           <div>
-            <div className="text-[var(--faint)] mb-0.5">{positionName(edge.from)} (ผู้ส่ง) บอกว่า:</div>
+            <div className="text-[var(--faint)] mb-0.5">{dir.positionName(edge.from)} (ผู้ส่ง) บอกว่า:</div>
             {edge.senderContext.length ? (
               <ul className="list-disc pl-5 text-[var(--ink)]">{edge.senderContext.map((t, i) => <li key={i}>{t}</li>)}</ul>
             ) : (
-              <span className="text-[var(--danger)]">ไม่ได้ระบุว่าส่งให้ {positionName(edge.to)}</span>
+              <span className="text-[var(--danger)]">ไม่ได้ระบุว่าส่งให้ {dir.positionName(edge.to)}</span>
             )}
           </div>
           <div>
-            <div className="text-[var(--faint)] mb-0.5">{positionName(edge.to)} (ผู้รับ) บอกว่า:</div>
+            <div className="text-[var(--faint)] mb-0.5">{dir.positionName(edge.to)} (ผู้รับ) บอกว่า:</div>
             {edge.receiverContext.length ? (
               <ul className="list-disc pl-5 text-[var(--ink)]">{edge.receiverContext.map((t, i) => <li key={i}>{t}</li>)}</ul>
             ) : (
-              <span className="text-[var(--danger)]">ไม่ได้ระบุว่ารับจาก {positionName(edge.from)}</span>
+              <span className="text-[var(--danger)]">ไม่ได้ระบุว่ารับจาก {dir.positionName(edge.from)}</span>
             )}
           </div>
         </div>
@@ -233,6 +235,7 @@ function EdgeItem({ edge }: { edge: PairEdge }) {
 /* ---------------- Workload ---------------- */
 
 function WorkloadTab({ result }: { result: Reconciliation }) {
+  const { dir } = useDirectory();
   const maxPerHead = Math.max(0, ...result.workload.map((w) => w.stepsPerHead));
   const maxApprover = Math.max(0, ...result.workload.map((w) => w.approverCount));
   if (result.workload.length === 0) return <Empty text="ยังไม่มีข้อมูลภาระงาน" />;
@@ -258,7 +261,7 @@ function WorkloadTab({ result }: { result: Reconciliation }) {
             return (
               <tr key={w.positionId} className="border-b border-[var(--line)] last:border-0">
                 <td className="px-4 py-3">
-                  <span className="font-medium">{positionName(w.positionId)}</span>
+                  <span className="font-medium">{dir.positionName(w.positionId)}</span>
                   {bottleneck && <Tag color="#B65418" text="คอขวด (ต่อหัว)" />}
                   {hub && <Tag color="#128A64" text="จุดอนุมัติหลัก" />}
                 </td>

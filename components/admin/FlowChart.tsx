@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { ReactFlow, Background, Controls, MarkerType, Position, type Node, type Edge as RFEdge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { FlowPosition, PairEdge } from "@/lib/reconcile";
-import { getPosition, GROUP_ORDER, GROUP_LABEL, PositionGroup, positionName, POSITIONS } from "@/lib/positions";
+import { useDirectory } from "@/components/DirectoryProvider";
 
 const LANE_W = 250;
 const LANE_GAP = 44;
@@ -15,21 +15,28 @@ const STEP_GAP = 8;
 const JOB_PAD_BOTTOM = 12;
 const JOB_GAP = 18;
 
-const GROUP_COLOR: Record<PositionGroup, string> = {
+const GROUP_COLOR: Record<string, string> = {
   Executive: "#7C5CBF",
   Commercial: "#128A64",
   Production: "#2E7CD6",
   Operation: "#B6841C",
 };
+const EXTRA_GROUP_COLORS = ["#C2508A", "#3AA6A6", "#8A6D3B", "#5C6BC0"];
+function colorFor(group: string, groups: string[]): string {
+  if (GROUP_COLOR[group]) return GROUP_COLOR[group];
+  const i = groups.indexOf(group);
+  return EXTRA_GROUP_COLORS[Math.max(0, i) % EXTRA_GROUP_COLORS.length];
+}
 
 function truncate(s: string, n = 40) {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
 export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edges: PairEdge[] }) {
-  const [enabled, setEnabled] = useState<Set<PositionGroup>>(new Set(GROUP_ORDER));
+  const { dir } = useDirectory();
+  const [enabled, setEnabled] = useState<Set<string>>(() => new Set(dir.groups));
 
-  const toggleGroup = (g: PositionGroup) =>
+  const toggleGroup = (g: string) =>
     setEnabled((prev) => {
       const next = new Set(prev);
       if (next.has(g)) next.delete(g);
@@ -39,7 +46,7 @@ export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edg
 
   const { nodes, rfEdges, empty } = useMemo(() => {
     const byId = new Map(structure.map((p) => [p.positionId, p]));
-    const lanePositions = POSITIONS.filter((p) => byId.has(p.id) && byId.get(p.id)!.jobs.length > 0 && enabled.has(p.group)).map((p) => p.id);
+    const lanePositions = dir.activePositions.filter((p) => byId.has(p.id) && byId.get(p.id)!.jobs.length > 0 && enabled.has(p.group)).map((p) => p.id);
     const laneSet = new Set(lanePositions);
 
     if (lanePositions.length === 0) {
@@ -65,9 +72,9 @@ export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edg
 
     for (const pid of lanePositions) {
       const posData = byId.get(pid)!;
-      const pos = getPosition(pid)!;
+      const pos = dir.getPosition(pid)!;
       const x = laneX.get(pid)!;
-      const color = GROUP_COLOR[pos.group];
+      const color = colorFor(pos.group, dir.groups);
 
       outNodes.push({
         id: `header-${pid}`,
@@ -76,7 +83,7 @@ export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edg
           label: (
             <div style={{ textAlign: "center", width: "100%", padding: "0 6px" }}>
               <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.15 }}>{truncate(pos.name, 34)}</div>
-              <div style={{ fontSize: 10.5, fontWeight: 500, opacity: 0.9, marginTop: 1 }}>{truncate(pos.members.join(", "), 40)}</div>
+              <div style={{ fontSize: 10.5, fontWeight: 500, opacity: 0.9, marginTop: 1 }}>{truncate(dir.positionMembers(pos.id).join(", "), 40)}</div>
             </div>
           ),
         },
@@ -127,7 +134,7 @@ export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edg
 
         job.steps.forEach((s, si) => {
           const hasApprover = s.approvers.length > 0 || s.approverExternal;
-          const approverNames = [...s.approvers.map(positionName), ...(s.approverExternal ? ["ลูกค้า/ภายนอก"] : [])].join(", ");
+          const approverNames = [...s.approvers.map((id) => dir.positionName(id)), ...(s.approverExternal ? ["ลูกค้า/ภายนอก"] : [])].join(", ");
           const stepTop = y + JOB_HEAD_H + si * STEP_H;
           stepAbs.set(s.id, { x: x + 12, y: stepTop });
           outNodes.push({
@@ -320,7 +327,7 @@ export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edg
               const deciderLabel = d.deciderExternal
                 ? "ลูกค้า/ภายนอก"
                 : d.decider && d.decider !== pid
-                ? positionName(d.decider)
+                ? dir.positionName(d.decider)
                 : "";
               pushEdge(`step-${s.id}`, dId, "decision", deciderLabel ? `ตัดสิน: ${deciderLabel}` : "ตัดสิน", `-dec`);
               if (failNode) {
@@ -334,20 +341,20 @@ export function FlowChart({ structure, edges }: { structure: FlowPosition[]; edg
     }
 
     return { nodes: outNodes, rfEdges: outEdges, empty: false };
-  }, [structure, edges, enabled]);
+  }, [structure, edges, enabled, dir]);
 
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <span className="text-[12.5px] text-[var(--muted)] mr-1">กรองกลุ่ม:</span>
-        {GROUP_ORDER.map((g) => (
+        {dir.groups.map((g) => (
           <button
             key={g}
             onClick={() => toggleGroup(g)}
             className={`text-[12px] font-semibold px-2.5 py-1 rounded-full border ${enabled.has(g) ? "text-white" : "text-[var(--muted)] bg-transparent"}`}
-            style={enabled.has(g) ? { background: GROUP_COLOR[g], borderColor: GROUP_COLOR[g] } : { borderColor: "var(--field-bd)" }}
+            style={enabled.has(g) ? { background: colorFor(g, dir.groups), borderColor: colorFor(g, dir.groups) } : { borderColor: "var(--field-bd)" }}
           >
-            {GROUP_LABEL[g]}
+            {g}
           </button>
         ))}
       </div>

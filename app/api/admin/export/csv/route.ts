@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { loadAndReconcile } from "@/lib/reconcile";
-import { positionName } from "@/lib/positions";
+import { loadDirectory } from "@/lib/directory";
 
 function csvEscape(value: unknown): string {
   const str = value === null || value === undefined ? "" : String(value);
@@ -13,7 +13,8 @@ function csvEscape(value: unknown): string {
 
 export async function GET() {
   const supabase = createServiceClient();
-  const { result } = await loadAndReconcile(supabase);
+  const [{ result }, dir] = await Promise.all([loadAndReconcile(supabase), loadDirectory(supabase)]);
+  const positionName = (id: string) => dir.positionName(id);
 
   const header = [
     "from_id",

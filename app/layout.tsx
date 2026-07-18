@@ -2,6 +2,11 @@ import type { Metadata } from "next";
 import { IBM_Plex_Sans_Thai, Bai_Jamjuree } from "next/font/google";
 import "./globals.css";
 import { AdminLink } from "@/components/AdminLink";
+import { DirectoryProvider } from "@/components/DirectoryProvider";
+import { createServiceClient } from "@/lib/supabase/server";
+import { loadDirectorySnapshot } from "@/lib/directory";
+
+export const dynamic = "force-dynamic";
 
 const bodyFont = IBM_Plex_Sans_Thai({
   variable: "--font-body",
@@ -20,16 +25,20 @@ export const metadata: Metadata = {
   description: "กรอกข้อมูล workflow ของทีมเพื่อทำผัง swimlane",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const supabase = createServiceClient();
+  const snapshot = await loadDirectorySnapshot(supabase, { activeOnly: true });
   return (
     <html lang="th" className={`${bodyFont.variable} ${dispFont.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-[var(--bg)] text-[var(--ink)]">
-        <AdminLink />
-        {children}
+        <DirectoryProvider initial={snapshot}>
+          <AdminLink />
+          {children}
+        </DirectoryProvider>
       </body>
     </html>
   );

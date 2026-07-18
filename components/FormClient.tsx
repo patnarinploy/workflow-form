@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Position } from "@/lib/positions";
+import { Position } from "@/lib/directory";
+import { useDirectory } from "./DirectoryProvider";
 import { FormState, Job, Step, emptyJob, emptyStep } from "@/lib/types";
 import { JobCard } from "./JobCard";
 
@@ -57,6 +58,8 @@ export function FormClient({
   initial: FormState;
   existing: { filledBy: string | null; updatedAt: string } | null;
 }) {
+  const { dir } = useDirectory();
+  const members = dir.positionMembers(position.id);
   const [jobs, setJobs] = useState<Job[]>(initial.jobs);
   const [blockers, setBlockers] = useState(initial.blockers);
   const [filledBy] = useState(initial.filledBy);
@@ -175,7 +178,7 @@ export function FormClient({
         <h1 className="font-disp font-bold text-[24px] leading-tight">{position.name}</h1>
         <span className="text-[13px] text-[var(--faint)]">{position.group}</span>
       </div>
-      <div className="text-[13px] text-[var(--muted)] mb-4">สมาชิก: {position.members.join(", ")}</div>
+      <div className="text-[13px] text-[var(--muted)] mb-4">สมาชิก: {members.join(", ")}</div>
 
       {existing && (
         <div className="bg-[#FBF3E9] border border-[#E9CFA0] rounded-[12px] px-4 py-2.5 text-[13px] text-[#8A5A1C] mb-4">

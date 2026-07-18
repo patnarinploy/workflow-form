@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { STAFF_ORDERED, staffLabel } from "@/lib/staff";
+import { loadDirectory } from "@/lib/directory";
 import { Assignment, Project, INVOLVEMENT_LABEL, STATUS_ORDER, isActive, summarizePeople } from "@/lib/projects";
 
 function csvEscape(v: unknown): string {
@@ -10,9 +10,10 @@ function csvEscape(v: unknown): string {
 
 export async function GET() {
   const supabase = createServiceClient();
-  const [{ data: projRows }, { data: asgRows }] = await Promise.all([
+  const [{ data: projRows }, { data: asgRows }, dir] = await Promise.all([
     supabase.from("projects").select("*"),
     supabase.from("assignments").select("*"),
+    loadDirectory(supabase),
   ]);
   const projects = ((projRows as Project[] | null) ?? [])
     .filter(isActive)
@@ -23,17 +24,18 @@ export async function GET() {
   for (const a of assignments) cell.set(`${a.person_id}:${a.project_id}`, a);
 
   const activeIds = new Set(projects.map((p) => p.id));
-  const summaries = summarizePeople(activeIds, assignments);
+  const summaries = summarizePeople(activeIds, assignments, dir.staffOrderedAll.map((s) => s.id));
   const scoreById = new Map(summaries.map((s) => [s.staffId, s.score]));
 
   const header = ["คน", ...projects.map((p) => p.name), "คะแนนภาระ"];
-  const rows = STAFF_ORDERED.map((s) => {
+  const rows = dir.staffOrderedAll.map((s) => {
     const cells = projects.map((p) => {
       const a = cell.get(`${s.id}:${p.id}`);
       if (!a) return "–";
       return INVOLVEMENT_LABEL[a.involvement] + (a.is_owner ? " (เจ้าของ)" : "");
     });
-    return [staffLabel(s.id), ...cells, String(scoreById.get(s.id) ?? 0)];
+    const label = dir.staffLabel(s.id) + (s.isActive ? "" : " (ปิดใช้งาน)");
+    return [label, ...cells, String(scoreById.get(s.id) ?? 0)];
   });
 
   const csv = [header, ...rows].map((r) => r.map(csvEscape).join(",")).join("\n");

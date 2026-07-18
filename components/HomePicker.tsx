@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { PositionCombobox } from "./PositionSelect";
-import { getPosition } from "@/lib/positions";
+import { useDirectory } from "./DirectoryProvider";
 
 const LAST_KEY = "wf-last-position";
 
 export function HomePicker() {
+  const { dir } = useDirectory();
   const [positionId, setPositionId] = useState("");
   const [member, setMember] = useState("");
   const [remembered, setRemembered] = useState<{ id: string; by: string } | null>(null);
@@ -16,7 +17,7 @@ export function HomePicker() {
       const raw = localStorage.getItem(LAST_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed?.id && getPosition(parsed.id)) {
+        if (parsed?.id && dir.getPosition(parsed.id)) {
           // eslint-disable-next-line react-hooks/set-state-in-effect
           setRemembered({ id: parsed.id, by: parsed.by || "" });
         }
@@ -24,23 +25,25 @@ export function HomePicker() {
     } catch {
       // ignore
     }
-  }, []);
+  }, [dir]);
 
-  const pos = positionId ? getPosition(positionId) : undefined;
-  const needsMember = !!pos && pos.members.length > 1;
+  const pos = positionId ? dir.getPosition(positionId) : undefined;
+  const posMembers = pos ? dir.positionMembers(pos.id) : [];
+  const needsMember = !!pos && posMembers.length > 1;
   const canGo = !!pos && (!needsMember || !!member);
 
   function go(id: string, by: string) {
-    const p = getPosition(id);
+    const p = dir.getPosition(id);
     if (!p) return;
-    const filledBy = p.members.length === 1 ? p.members[0] : by;
+    const mem = dir.positionMembers(id);
+    const filledBy = mem.length === 1 ? mem[0] : by;
     localStorage.setItem(LAST_KEY, JSON.stringify({ id, by: filledBy }));
     // Hard navigation (not router.push) so we always load the current deployment's
     // chunks — avoids "This page couldn't load" when an old tab hits new chunk hashes.
     window.location.href = `/form/${id}?by=${encodeURIComponent(filledBy)}`;
   }
 
-  const rememberedPos = remembered ? getPosition(remembered.id) : null;
+  const rememberedPos = remembered ? dir.getPosition(remembered.id) : null;
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-5 py-16">
@@ -84,7 +87,7 @@ export function HomePicker() {
               className="w-full text-sm bg-[var(--field)] border border-[var(--field-bd)] rounded-[10px] px-3 py-2.5 outline-none focus:border-[var(--accent)]"
             >
               <option value="">— เลือกชื่อ —</option>
-              {pos!.members.map((m) => (
+              {posMembers.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>

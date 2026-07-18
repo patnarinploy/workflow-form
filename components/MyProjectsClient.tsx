@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { StaffCombobox } from "./StaffCombobox";
-import { getStaff } from "@/lib/staff";
-import { positionName } from "@/lib/positions";
+import { useDirectory } from "./DirectoryProvider";
 import {
   Project,
   Assignment,
@@ -20,6 +19,7 @@ const PERSON_KEY = "wf-project-person";
 type Local = { involvement: Involvement | ""; isOwner: boolean; roleNote: string };
 
 export function MyProjectsClient() {
+  const { dir } = useDirectory();
   const [person, setPerson] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
   const [byProject, setByProject] = useState<Record<string, Local>>({});
@@ -30,7 +30,7 @@ export function MyProjectsClient() {
   // remember who I am
   useEffect(() => {
     const saved = localStorage.getItem(PERSON_KEY);
-    if (saved && getStaff(saved)) setPerson(saved);
+    if (saved && dir.getStaff(saved)) setPerson(saved);
   }, []);
 
   const load = useCallback(async (pid: string) => {
@@ -49,7 +49,7 @@ export function MyProjectsClient() {
   }, []);
 
   useEffect(() => {
-    if (person && getStaff(person)) load(person);
+    if (person && dir.getStaff(person)) load(person);
   }, [person, load]);
 
   function pickPerson(id: string) {
@@ -111,7 +111,7 @@ export function MyProjectsClient() {
     stamp();
   }
 
-  const staff = person ? getStaff(person) : undefined;
+  const staff = person ? dir.getStaff(person) : undefined;
   const assigned = Object.entries(byProject).filter(([, v]) => v.involvement);
   const counts = { high: 0, medium: 0, low: 0 } as Record<Involvement, number>;
   for (const [, v] of assigned) if (v.involvement) counts[v.involvement]++;
@@ -217,7 +217,7 @@ export function MyProjectsClient() {
                             type="text"
                             value={local.roleNote}
                             onChange={(e) => update(p.id, { roleNote: e.target.value }, { debounceRole: true })}
-                            placeholder={positionName(staff.positionId)}
+                            placeholder={dir.positionName(staff.positionId)}
                             className="w-full text-sm bg-[var(--field)] border border-[var(--field-bd)] rounded-[10px] px-3 py-2 outline-none focus:border-[var(--accent)]"
                           />
                         </div>

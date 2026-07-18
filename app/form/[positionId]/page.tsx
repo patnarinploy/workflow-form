@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getPosition } from "@/lib/positions";
+import { loadDirectory } from "@/lib/directory";
 import { createServiceClient } from "@/lib/supabase/server";
 import { FormClient } from "@/components/FormClient";
 import {
@@ -29,10 +29,11 @@ export default async function FormPage({
 }) {
   const { positionId } = await params;
   const { by } = await searchParams;
-  const position = getPosition(positionId);
+  const supabase = createServiceClient();
+  const dir = await loadDirectory(supabase);
+  const position = dir.getPosition(positionId);
   if (!position) notFound();
 
-  const supabase = createServiceClient();
   const { data: response } = await supabase
     .from("responses")
     .select("id, filled_by, blockers, updated_at")

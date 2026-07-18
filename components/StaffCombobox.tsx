@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { STAFF_ORDERED, staffLabel, getStaff } from "@/lib/staff";
-import { GROUP_ORDER, GROUP_LABEL, PositionGroup, getPosition } from "@/lib/positions";
+import { useDirectory } from "./DirectoryProvider";
 
 export function StaffCombobox({
   value,
@@ -13,6 +12,7 @@ export function StaffCombobox({
   onChange: (id: string) => void;
   placeholder?: string;
 }) {
+  const { dir } = useDirectory();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -36,17 +36,16 @@ export function StaffCombobox({
 
   const q = query.trim().toLowerCase();
   const grouped = useMemo(() => {
-    const out: { group: PositionGroup; items: typeof STAFF_ORDERED }[] = [];
-    for (const g of GROUP_ORDER) {
-      const items = STAFF_ORDERED.filter((s) => {
-        if (getPosition(s.positionId)?.group !== g) return false;
-        if (!q) return true;
-        return staffLabel(s.id).toLowerCase().includes(q) || s.nick.toLowerCase().includes(q);
-      });
+    const out: { group: string; items: { id: string; nick: string }[] }[] = [];
+    for (const g of dir.groups) {
+      const items = dir.staffOrdered
+        .filter((s) => dir.staffGroup(s.id) === g)
+        .filter((s) => !q || dir.staffLabel(s.id).toLowerCase().includes(q) || s.nick.toLowerCase().includes(q))
+        .map((s) => ({ id: s.id, nick: s.nick }));
       if (items.length) out.push({ group: g, items });
     }
     return out;
-  }, [q]);
+  }, [dir, q]);
 
   return (
     <div ref={wrapRef} className="relative">
@@ -56,7 +55,7 @@ export function StaffCombobox({
         className="w-full min-h-[44px] flex items-center text-left bg-[var(--field)] border border-[var(--field-bd)] rounded-[10px] px-3 py-2.5 outline-none focus:border-[var(--accent)]"
       >
         <span className={value ? "text-sm text-[var(--ink)]" : "text-[13.5px] text-[var(--faint)]"}>
-          {value && getStaff(value) ? staffLabel(value) : placeholder}
+          {value && dir.getStaff(value) ? dir.staffLabel(value) : placeholder}
         </span>
         <span className="ml-auto text-[var(--faint)] text-xs pl-2">▾</span>
       </button>
@@ -76,7 +75,7 @@ export function StaffCombobox({
             {grouped.map(({ group, items }) => (
               <div key={group}>
                 <div className="px-3 pt-2 pb-1 text-[11px] font-semibold text-[var(--faint)] uppercase tracking-wide bg-[var(--bg)]/60 sticky top-0">
-                  {GROUP_LABEL[group]}
+                  {group}
                 </div>
                 {items.map((s) => (
                   <button
@@ -89,7 +88,7 @@ export function StaffCombobox({
                     }}
                     className={`w-full text-left px-3 py-2 text-[13.5px] hover:bg-[var(--accent-soft)] ${value === s.id ? "bg-[var(--accent-soft)]" : ""}`}
                   >
-                    {staffLabel(s.id)}
+                    {dir.staffLabel(s.id)}
                   </button>
                 ))}
               </div>

@@ -1,15 +1,17 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { AdminNav } from "@/components/admin/AdminNav";
 import { MatrixClient } from "@/components/admin/MatrixClient";
+import { loadDirectorySnapshot } from "@/lib/directory";
 import { Project, Assignment, STATUS_ORDER, isActive } from "@/lib/projects";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminMatrixPage() {
   const supabase = createServiceClient();
-  const [{ data: projRows }, { data: asgRows }] = await Promise.all([
+  const [{ data: projRows }, { data: asgRows }, directory] = await Promise.all([
     supabase.from("projects").select("*"),
     supabase.from("assignments").select("*"),
+    loadDirectorySnapshot(supabase), // all rows incl. inactive
   ]);
   const projects = ((projRows as Project[] | null) ?? [])
     .filter(isActive)
@@ -20,7 +22,7 @@ export default async function AdminMatrixPage() {
     <div className="max-w-[1200px] mx-auto px-5 py-8">
       <h1 className="font-disp font-bold text-[22px] mb-4">ตารางภาระงาน</h1>
       <AdminNav />
-      <MatrixClient projects={projects} assignments={assignments} />
+      <MatrixClient projects={projects} assignments={assignments} positions={directory.positions} staff={directory.staff} />
     </div>
   );
 }

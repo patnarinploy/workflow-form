@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getPosition } from "@/lib/positions";
+import { loadDirectory } from "@/lib/directory";
 import { Job, LinkKind, isSpecialToken } from "@/lib/types";
 
 type Payload = { positionId: string; filledBy?: string; jobs: Job[]; blockers?: string };
@@ -31,6 +31,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "รูปแบบข้อมูลไม่ถูกต้อง" }, { status: 400 });
   }
 
+  const supabase = createServiceClient();
+  const dir = await loadDirectory(supabase);
+  const getPosition = (id: string) => dir.getPosition(id);
+
   if (!body.positionId || !getPosition(body.positionId)) {
     return NextResponse.json({ error: "ไม่พบตำแหน่งนี้" }, { status: 400 });
   }
@@ -38,8 +42,6 @@ export async function POST(req: Request) {
   if (!jobsValid(jobs)) {
     return NextResponse.json({ error: "กรุณากรอกชื่องานและขั้นตอนให้ครบ" }, { status: 400 });
   }
-
-  const supabase = createServiceClient();
 
   const { data: response, error: respErr } = await supabase
     .from("responses")
