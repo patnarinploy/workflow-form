@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { loadAndReconcile } from "@/lib/reconcile";
-import { loadDirectory } from "@/lib/directory";
 import { JobRow, StepRow, StepLinkRow, StepLinkTargetRow, StepDecisionRow } from "@/lib/types";
 
 export async function GET() {
   const supabase = createServiceClient();
-  const [{ data, result }, dir] = await Promise.all([loadAndReconcile(supabase), loadDirectory(supabase)]);
+  const { data, result, dir } = await loadAndReconcile(supabase);
   const positionName = (id: string) => dir.positionName(id);
   const getPosition = (id: string) => dir.getPosition(id);
 

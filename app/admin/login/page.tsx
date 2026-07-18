@@ -1,10 +1,9 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 function LoginForm() {
-  const router = useRouter();
   const params = useSearchParams();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -24,11 +23,14 @@ function LoginForm() {
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || "เข้าสู่ระบบไม่สำเร็จ");
       }
-      router.push(params.get("next") || "/admin");
-      router.refresh();
+      // Hard navigation (not router.push) so the browser makes a fresh request
+      // with the new cookie — avoids replaying the stale unauthenticated
+      // /admin -> /admin/login redirect from the client router cache (which was
+      // the "have to click twice" bug).
+      const next = params.get("next");
+      window.location.assign(next && next.startsWith("/") ? next : "/admin");
     } catch (err) {
       setError(err instanceof Error ? err.message : "เข้าสู่ระบบไม่สำเร็จ");
-    } finally {
       setLoading(false);
     }
   }

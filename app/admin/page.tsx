@@ -1,13 +1,12 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { loadAndReconcile } from "@/lib/reconcile";
-import { loadDirectory } from "@/lib/directory";
 import { AdminDashboard, ProjectProgress } from "@/components/admin/AdminDashboard";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
   const supabase = createServiceClient();
-  const [{ data, result }, dir] = await Promise.all([loadAndReconcile(supabase), loadDirectory(supabase)]);
+  const { data, result, dir } = await loadAndReconcile(supabase);
 
   const blockers = data.responses
     .filter((r) => r.blockers && r.blockers.trim())

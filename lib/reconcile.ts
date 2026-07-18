@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ResponseRow, JobRow, StepRow, StepLinkRow, StepLinkTargetRow, StepDecisionRow } from "./types";
-import { loadDirectory } from "./directory";
+import { loadDirectory, Directory } from "./directory";
 
 export type RawData = {
   responses: ResponseRow[];
@@ -302,7 +302,7 @@ export function reconcile(
 
 export async function loadAndReconcile(
   supabase: SupabaseClient
-): Promise<{ data: RawData; result: Reconciliation }> {
+): Promise<{ data: RawData; result: Reconciliation; dir: Directory }> {
   const [dir, { data: responses }, { data: jobs }, { data: steps }, { data: links }, { data: targets }, { data: decisions }] = await Promise.all([
     loadDirectory(supabase),
     supabase.from("responses").select("*"),
@@ -320,5 +320,5 @@ export async function loadAndReconcile(
     targets: (targets as StepLinkTargetRow[] | null) ?? [],
     decisions: (decisions as StepDecisionRow[] | null) ?? [],
   };
-  return { data: raw, result: reconcile(raw, dir.activePositions, dir.memberCount) };
+  return { data: raw, result: reconcile(raw, dir.activePositions, dir.memberCount), dir };
 }
