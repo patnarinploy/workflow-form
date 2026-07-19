@@ -28,3 +28,22 @@
 ## Database
 
 ตาราง `responses`, `tasks`, `task_links` (person หลายค่าต่อ task เก็บเป็นแถวแยกใน `task_links`, `kind` = from/to/approver/rework) สร้างไว้ใน Supabase project ผ่าน migration แล้ว รายชื่อพนักงาน hardcode ใน `lib/staff.ts` ไม่เก็บใน DB
+
+---
+
+## หน้าผังงาน (Diagram) — 3 โหมด
+
+แท็บ "ผัง" ในหน้า `/admin` มี 3 โหมด สลับได้ด้วยปุ่มด้านบน (จำโหมด/ตัวเลือกไว้ใน URL query แชร์ลิงก์ได้):
+
+- **รายงาน (A)** — swimlane ทีละ 1 งาน (job) โชว์เฉพาะตำแหน่งที่งานนั้นแตะ มีตัวกรองโชว์/ซ่อน lane
+- **รายตำแหน่ง (B)** — 3 คอลัมน์ต่อ 1 ตำแหน่ง (component เดิม เก็บใน `components/diagram/legacy/`)
+- **ภาพรวม (C)** — แผนที่จุด-เส้น force-directed (component เดิม เก็บใน `components/diagram/legacy/`)
+
+โหมด B/C ถูกย้ายไป `components/diagram/legacy/` เก็บไว้เป็นทางเลือก (ไม่ได้ลบ) ยังกดสลับใช้ได้
+
+### วิธีย้อนกลับหน้าผังไปเวอร์ชันก่อนมีแบบ A
+เวอร์ชันก่อนเพิ่มแบบ A (มีแค่ B/C) ถูก tag ไว้ที่ `diagram-bc-stable` และอยู่บน branch `claude/new-session-gg5p9o`
+
+- ย้อนทั้งหมด: `git checkout claude/new-session-gg5p9o` (โหมด B/C ครบเหมือนเดิม)
+- กู้เฉพาะไฟล์: `git checkout diagram-bc-stable -- <path>`
+- งานแบบ A พัฒนาบน branch `diagram-view-a` — ถ้าผ่านค่อย merge เข้า `claude/new-session-gg5p9o`
