@@ -14,7 +14,7 @@ const LINKS = [
 export function AdminNav() {
   const pathname = usePathname();
   return (
-    <div className="flex flex-wrap gap-1.5 mb-5">
+    <div className="flex flex-wrap items-center gap-1.5 mb-5">
       {LINKS.map((l) => {
         const active = l.href === "/admin" ? pathname === "/admin" : pathname.startsWith(l.href);
         return (
@@ -29,6 +29,12 @@ export function AdminNav() {
           </a>
         );
       })}
+      <a
+        href="/"
+        className="ml-auto text-[12.5px] font-semibold px-3 py-1.5 rounded-full border border-[var(--accent-line)] text-[var(--accent)] bg-[var(--accent-soft)] hover:opacity-90"
+      >
+        ← กลับไปหน้ากรอกฟอร์ม
+      </a>
     </div>
   );
 }
