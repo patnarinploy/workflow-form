@@ -112,6 +112,10 @@ export default async function FormPage({
         .filter((l) => l.kind === "sends_to")
         .map((l) => ({ what: l.what ?? "", positions: tokensByLink.get(l.id) ?? [], conditional: !!l.conditional, condition: l.condition ?? "" }));
       const approverPos = ls.filter((l) => l.kind === "approver").flatMap((l) => tokensByLink.get(l.id) ?? []);
+      const parallels = ls
+        .filter((l) => l.kind === "parallel")
+        .map((l) => ({ position: (tokensByLink.get(l.id) ?? [])[0] ?? "", stepId: l.parallel_step_id ?? "", what: l.what ?? "" }))
+        .filter((p) => p.position);
       const base = emptyStep();
       return {
         id: s.id,
@@ -120,6 +124,7 @@ export default async function FormPage({
         sendsTo: sends.length ? { enabled: true, items: sends } : base.sendsTo,
         approver: approverPos.length ? { enabled: true, positions: approverPos } : base.approver,
         decision: buildDecision(s.id),
+        parallel: parallels.length ? { enabled: true, items: parallels } : base.parallel,
       };
     };
 

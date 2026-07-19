@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { PositionSelect, PositionCombobox } from "./PositionSelect";
 import {
   Step,
@@ -7,17 +8,25 @@ import {
   SendsGroup,
   ApproverGroup,
   Decision,
+  ParallelGroup,
+  ParallelItem,
   WaitItem,
   SendItem,
   emptyWaitItem,
   emptySendItem,
+  emptyParallelItem,
   emptyWaits,
   emptySends,
   emptyApprover,
   emptyDecision,
+  emptyParallel,
+  isSpecialToken,
 } from "@/lib/types";
 
 const EXTERNAL: ["external"] = ["external"];
+
+type StepOption = { stepId: string; label: string };
+type CacheState = Record<string, StepOption[] | "loading">;
 
 function GroupHeader({
   checked,
@@ -176,6 +185,101 @@ function ApproverEditor({ group, onChange }: { group: ApproverGroup; onChange: (
   );
 }
 
+// ---- parallel (happens at the same time as another position's step) ----
+function ParallelEditor({ group, onChange, positionId }: { group: ParallelGroup; onChange: (g: ParallelGroup) => void; positionId: string }) {
+  const items = group.items ?? [];
+  const [cache, setCache] = useState<CacheState>({});
+
+  // fetch the steps of each selected (real, non-external) position for the picker
+  useEffect(() => {
+    const wanted = Array.from(
+      new Set(items.map((it) => it.position).filter((p) => p && !isSpecialToken(p)))
+    );
+    for (const pos of wanted) {
+      if (cache[pos] !== undefined) continue;
+      setCache((c) => ({ ...c, [pos]: "loading" }));
+      fetch(`/api/position-steps?position=${encodeURIComponent(pos)}`)
+        .then((r) => (r.ok ? r.json() : { steps: [] }))
+        .then((d) => setCache((c) => ({ ...c, [pos]: (d.steps as StepOption[]) ?? [] })))
+        .catch(() => setCache((c) => ({ ...c, [pos]: [] })));
+    }
+  }, [items, cache]);
+
+  const setItem = (i: number, item: ParallelItem) => {
+    const next = items.slice();
+    next[i] = item;
+    onChange({ ...group, items: next });
+  };
+  const toggle = (v: boolean) => onChange({ enabled: v, items: v && items.length === 0 ? [emptyParallelItem()] : items });
+
+  return (
+    <div>
+      <GroupHeader checked={group.enabled} onToggle={toggle} label="ทำควบคู่กับตำแหน่งอื่น (เกิดพร้อมกัน)" color="#7C5CBF" />
+      {group.enabled && (
+        <div className="mt-2 ml-6 flex flex-col gap-2">
+          {items.map((item, i) => {
+            const external = isSpecialToken(item.position);
+            const opts = item.position && !external ? cache[item.position] : undefined;
+            const notFilled = item.position && !external && Array.isArray(opts) && opts.length === 0;
+            const waiting = item.position && !external && !item.stepId;
+            return (
+              <ItemCard key={i} onRemove={items.length > 1 ? () => onChange({ ...group, items: items.filter((_, j) => j !== i) }) : undefined}>
+                <div>
+                  <label className="block text-[12px] text-[var(--muted)] mb-1">ควบคู่กับตำแหน่งไหน *</label>
+                  <PositionCombobox
+                    value={item.position}
+                    onChange={(position) => setItem(i, { ...item, position, stepId: "" })}
+                    specials={EXTERNAL}
+                    exclude={[positionId]}
+                    placeholder="เลือกตำแหน่งที่ทำพร้อมกัน…"
+                  />
+                </div>
+
+                {item.position && !external && (
+                  <div>
+                    <label className="block text-[12px] text-[var(--muted)] mb-1">ควบคู่กับขั้นตอนไหนของเขา</label>
+                    {opts === "loading" ? (
+                      <div className="text-[12px] text-[var(--faint)]">กำลังโหลดขั้นตอน…</div>
+                    ) : (
+                      <>
+                        <select value={item.stepId} onChange={(e) => setItem(i, { ...item, stepId: e.target.value })} className={fieldCls}>
+                          <option value="">ยังไม่ระบุขั้นตอน (ผูกกับตำแหน่งไว้ก่อน)</option>
+                          {Array.isArray(opts) &&
+                            opts.map((o) => (
+                              <option key={o.stepId} value={o.stepId}>{o.label}</option>
+                            ))}
+                        </select>
+                        {notFilled && (
+                          <div className="text-[11.5px] text-[var(--faint)] mt-1">ตำแหน่งนี้ยังไม่ได้กรอกงาน — เลือกได้ภายหลังเมื่อเขากรอกแล้ว</div>
+                        )}
+                        {waiting && notFilled && (
+                          <span className="inline-block mt-1 text-[10.5px] rounded-full bg-[#EFE9F6] text-[#5B3E9B] px-2 py-0.5">รอผูกขั้นตอนคู่ขนาน</span>
+                        )}
+                        {waiting && !notFilled && Array.isArray(opts) && (
+                          <span className="inline-block mt-1 text-[10.5px] rounded-full bg-[var(--accent-soft)] text-[#0F5F47] px-2 py-0.5">ตำแหน่งนี้กรอกงานแล้ว — เลือกขั้นตอนคู่ขนานได้เลย</span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <input
+                  type="text"
+                  value={item.what}
+                  placeholder="ทำอะไรควบคู่ (ถ้ามี) เช่น ถ่าย Behind the Scenes"
+                  onChange={(e) => setItem(i, { ...item, what: e.target.value })}
+                  className={fieldCls}
+                />
+              </ItemCard>
+            );
+          })}
+          {addBtn("+ เพิ่มงานคู่ขนานอีก", () => onChange({ ...group, items: [...items, emptyParallelItem()] }))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---- decision (pass/fail) ----
 type Sibling = { id: string; action: string };
 
@@ -322,6 +426,11 @@ export function StepEditor({
               positionId={positionId}
               siblings={siblings}
               selfId={step.id}
+            />
+            <ParallelEditor
+              group={step.parallel ?? emptyParallel()}
+              onChange={(parallel) => onChange({ ...step, parallel })}
+              positionId={positionId}
             />
           </div>
 

@@ -36,17 +36,19 @@ export type SwimNode = {
   decisionFail?: string;
   targetPos?: string; // endpoint -> the other position (for jump)
   external?: boolean;
+  faint?: boolean; // unpinned parallel target (lane-head, not a specific box)
 };
 
 export type SwimLink = {
   id: string;
   from: string;
   to: string;
-  kind: "seq" | "send" | "wait" | "fail";
+  kind: "seq" | "send" | "wait" | "fail" | "parallel";
   status?: EdgeStatus;
   what?: string;
   conditional?: string;
   backEdge?: boolean;
+  faint?: boolean;
 };
 
 export type Swimlane = {
@@ -54,7 +56,7 @@ export type Swimlane = {
   lanes: SwimLane[];
   nodes: SwimNode[];
   links: SwimLink[];
-  stats: { steps: number; sends: number; approvals: number; returns: number };
+  stats: { steps: number; sends: number; approvals: number; returns: number; parallels: number; parallelsUnpinned: number };
   crossJob: { pos: string; jobId: string | null; label: string }[];
 };
 
@@ -80,10 +82,16 @@ export function buildSwimlane(
   const stepNodeId = new Map<string, string>(); // flowStep.id -> node id
   let externalUsed = false;
 
+  // action of any step across the whole company, to label pinned parallel targets
+  const stepActionById = new Map<string, string>();
+  for (const p of structure) for (const jb of p.jobs) for (const st of jb.steps) stepActionById.set(st.id, st.action);
+
   const steps = [...job.steps].sort((a, b) => a.order - b.order);
   let sends = 0,
     approvals = 0,
-    returns = 0;
+    returns = 0,
+    parallels = 0,
+    parallelsUnpinned = 0;
 
   steps.forEach((s, i) => {
     const nid = `s-${s.id}`;
@@ -137,6 +145,32 @@ export function buildSwimlane(
         emitWait(`wt-${s.id}-${wi}-${ti}`, t, w.what || dir.positionName(t), t, false, w.what);
       });
       if (w.external) emitWait(`wt-${s.id}-${wi}-x`, EXTERNAL_LANE, w.what || "รับงาน", undefined, true, w.what);
+    });
+
+    // parallel (same time as another position's step) — same column i, no arrow
+    s.parallels.forEach((p, pi) => {
+      parallels++;
+      const eid = `par-${s.id}-${pi}`;
+      if (p.external) {
+        externalUsed = true;
+        nodes.push({ id: eid, kind: "endpoint", lane: EXTERNAL_LANE, col: i, label: p.what || "ควบคู่ภายนอก", external: true });
+        links.push({ id: `l-${eid}`, from: nid, to: eid, kind: "parallel", what: p.what });
+        return;
+      }
+      laneSet.add(p.position);
+      const pinnedAction = p.stepId ? stepActionById.get(p.stepId) : undefined;
+      const unpinned = !pinnedAction;
+      if (unpinned) parallelsUnpinned++;
+      nodes.push({
+        id: eid,
+        kind: "endpoint",
+        lane: p.position,
+        col: unpinned ? -0.4 : i, // unpinned -> lane head; pinned -> aligned column
+        label: unpinned ? "(ยังไม่ระบุขั้นตอน)" : pinnedAction!,
+        targetPos: p.position,
+        faint: unpinned,
+      });
+      links.push({ id: `l-${eid}`, from: nid, to: eid, kind: "parallel", what: p.what, faint: unpinned });
     });
   });
 
@@ -200,7 +234,7 @@ export function buildSwimlane(
     lanes,
     nodes,
     links,
-    stats: { steps: steps.length, sends, approvals, returns },
+    stats: { steps: steps.length, sends, approvals, returns, parallels, parallelsUnpinned },
     crossJob,
   };
 }

@@ -12,6 +12,7 @@ type Props = {
   specials?: SpecialValue[];
   placeholder?: string;
   error?: boolean;
+  exclude?: string[];
 };
 
 export function PositionSelect({
@@ -21,6 +22,7 @@ export function PositionSelect({
   specials = [],
   placeholder = "เลือกตำแหน่ง…",
   error,
+  exclude = [],
 }: Props) {
   const { dir } = useDirectory();
   const [open, setOpen] = useState(false);
@@ -59,6 +61,7 @@ export function PositionSelect({
     for (const g of dir.groups) {
       const items = dir
         .positionsInGroup(g)
+        .filter((p) => !exclude.includes(p.id))
         .map((p) => ({ id: p.id, name: p.name, members: dir.positionMembers(p.id) }))
         .filter(
           (p) =>
@@ -69,7 +72,7 @@ export function PositionSelect({
       if (items.length) out.push({ group: g, items });
     }
     return out;
-  }, [dir, q]);
+  }, [dir, q, exclude.join(",")]);
 
   const isSelected = (token: string) => value.includes(token);
 
@@ -208,12 +211,14 @@ export function PositionCombobox({
   placeholder,
   error,
   specials = [],
+  exclude = [],
 }: {
   value: string;
   onChange: (id: string) => void;
   placeholder?: string;
   error?: boolean;
   specials?: SpecialValue[];
+  exclude?: string[];
 }) {
   return (
     <PositionSelect
@@ -223,6 +228,7 @@ export function PositionCombobox({
       placeholder={placeholder}
       error={error}
       specials={specials}
+      exclude={exclude}
     />
   );
 }

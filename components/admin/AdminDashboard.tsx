@@ -176,8 +176,15 @@ function ProgressTab({
 /* ---------------- Mismatch ---------------- */
 
 function MismatchTab({ result }: { result: Reconciliation }) {
+  const { dir } = useDirectory();
   const mismatches = result.oneSided.filter((e) => e.status === "mismatch");
   const pending = result.oneSided.filter((e) => e.status === "pending");
+  const pp = result.parallelPairs;
+  const pStepMismatch = pp.filter((p) => p.status === "step_mismatch");
+  const pOneSided = pp.filter((p) => p.status === "mismatch");
+  const pPendingP = pp.filter((p) => p.status === "pending");
+  const pMatched = pp.filter((p) => p.status === "matched");
+  const pName = (id: string) => dir.positionName(id);
   return (
     <div className="flex flex-col gap-5">
       <Section title={`เข้าใจไม่ตรงกัน (${mismatches.length})`} desc="สองตำแหน่งกรอกแล้วทั้งคู่ แต่พูดถึงการส่งงานไม่ตรง — ควรคุยให้ตรง" color="#B65418">
@@ -189,6 +196,37 @@ function MismatchTab({ result }: { result: Reconciliation }) {
       <Section title={`จับคู่ได้แล้ว (${result.matched.length})`} desc="ทั้งผู้ส่งและผู้รับยืนยันตรงกัน" color="#128A64">
         {result.matched.length === 0 ? <Empty text="ยังไม่มีเส้นที่จับคู่ได้" /> : result.matched.map((e, i) => <EdgeItem key={i} edge={e} />)}
       </Section>
+
+      {pp.length > 0 && (
+        <Section title="งานทำควบคู่ (parallel)" desc="ความควบคู่ก็มีสองฝั่งเหมือนส่งต่อ — เทียบว่าทั้งสองตำแหน่งบอกตรงกันไหม" color="#7C5CBF">
+          <div className="flex flex-col gap-2">
+            {pStepMismatch.map((p, i) => (
+              <ParallelRow key={`sm-${i}`} a={pName(p.a)} b={pName(p.b)} label="ระบุขั้นตอนคู่ขนานไม่ตรงกัน" color="#B65418" />
+            ))}
+            {pOneSided.map((p, i) => (
+              <ParallelRow key={`os-${i}`} a={pName(p.a)} b={pName(p.b)} label="ฝั่งเดียวบอก อีกฝั่งไม่ได้บอก" color="#B65418" />
+            ))}
+            {pPendingP.map((p, i) => (
+              <ParallelRow key={`pn-${i}`} a={pName(p.a)} b={pName(p.b)} label="รออีกตำแหน่งกรอก" color="#6C7A73" />
+            ))}
+            {pMatched.map((p, i) => (
+              <ParallelRow key={`mt-${i}`} a={pName(p.a)} b={pName(p.b)} label="ยืนยันสองฝั่ง" color="#128A64" />
+            ))}
+          </div>
+        </Section>
+      )}
+    </div>
+  );
+}
+
+function ParallelRow({ a, b, label, color }: { a: string; b: string; label: string; color: string }) {
+  return (
+    <div className="border border-[var(--line)] rounded-[10px] px-3.5 py-2.5 flex items-center gap-2">
+      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+      <span className="text-[13px] font-medium">{a}</span>
+      <span className="text-[var(--faint)]">⇄</span>
+      <span className="text-[13px] font-medium">{b}</span>
+      <span className="ml-auto text-[11.5px] shrink-0" style={{ color }}>{label}</span>
     </div>
   );
 }

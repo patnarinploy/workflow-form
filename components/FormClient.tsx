@@ -28,6 +28,7 @@ function normalizeJobs(raw: unknown): Job[] | null {
           const sd = s.sendsTo as Record<string, unknown> | undefined;
           const ap = s.approver as Record<string, unknown> | undefined;
           const dc = s.decision as Record<string, unknown> | undefined;
+          const pl = s.parallel as Record<string, unknown> | undefined;
           return {
             id: typeof s.id === "string" && s.id ? s.id : es.id,
             action: typeof s.action === "string" ? s.action : "",
@@ -35,6 +36,7 @@ function normalizeJobs(raw: unknown): Job[] | null {
             sendsTo: sd && Array.isArray(sd.items) ? (sd as unknown as Step["sendsTo"]) : es.sendsTo,
             approver: ap && Array.isArray(ap.positions) ? (ap as unknown as Step["approver"]) : es.approver,
             decision: dc && typeof dc.enabled === "boolean" ? ({ ...es.decision, ...dc } as Step["decision"]) : es.decision,
+            parallel: pl && Array.isArray(pl.items) ? (pl as unknown as Step["parallel"]) : es.parallel,
           };
         })
       : base.steps;

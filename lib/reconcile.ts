@@ -45,6 +45,7 @@ export type FlowDecision = {
   failExternal: boolean;
   failReason: string;
 };
+export type FlowParallel = { position: string; stepId: string | null; what: string; external: boolean };
 export type FlowStep = {
   id: string;
   order: number;
@@ -54,9 +55,21 @@ export type FlowStep = {
   approvers: string[];
   approverExternal: boolean;
   decision: FlowDecision | null;
+  parallels: FlowParallel[];
 };
 export type FlowJob = { id: string; name: string; order: number; steps: FlowStep[] };
 export type FlowPosition = { positionId: string; jobs: FlowJob[] };
+
+// Parallel (undirected) relationship between two positions.
+export type ParallelStatus = "matched" | "mismatch" | "pending" | "step_mismatch";
+export type ParallelPair = {
+  a: string; // canonical: a < b
+  b: string;
+  status: ParallelStatus;
+  aAsserted: boolean;
+  bAsserted: boolean;
+  context: string[];
+};
 
 export type Reconciliation = {
   submittedIds: string[];
@@ -65,6 +78,7 @@ export type Reconciliation = {
   edges: PairEdge[];
   matched: PairEdge[];
   oneSided: PairEdge[];
+  parallelPairs: ParallelPair[];
   workload: Workload[];
   structure: FlowPosition[];
 };
@@ -281,10 +295,63 @@ export function reconcile(
             const approverLinks = ls.filter((l) => l.kind === "approver");
             const approvers = approverLinks.flatMap((l) => targetsByLink.get(l.id)?.positions ?? []);
             const approverExternal = approverLinks.some((l) => targetsByLink.get(l.id)?.external);
-            return { id: s.id, order: s.step_order, action: s.action, sends, waits, approvers, approverExternal, decision: flowDecision(s.id) };
+            const parallels: FlowParallel[] = ls
+              .filter((l) => l.kind === "parallel")
+              .map((l) => {
+                const tg = targetsByLink.get(l.id) ?? { positions: [], external: false };
+                return { position: tg.positions[0] ?? "", stepId: l.parallel_step_id ?? null, what: l.what ?? "", external: tg.external };
+              })
+              .filter((p) => p.position || p.external);
+            return { id: s.id, order: s.step_order, action: s.action, sends, waits, approvers, approverExternal, decision: flowDecision(s.id), parallels };
           }),
       })),
   }));
+
+  // ---- parallel reconciliation (undirected, two-sided like sends) ----
+  type PAssert = { owner: string; ownerStepId: string; target: string; pinned: string | null };
+  const pAsserts: PAssert[] = [];
+  for (const link of data.links) {
+    if (link.kind !== "parallel") continue;
+    const meta = stepMeta.get(link.step_id);
+    if (!meta) continue;
+    const targetPos = targetsByLink.get(link.id)?.positions[0];
+    if (!targetPos) continue; // external parallels don't reconcile
+    pAsserts.push({ owner: meta.owner, ownerStepId: link.step_id, target: targetPos, pinned: link.parallel_step_id ?? null });
+  }
+  const pairMap = new Map<string, { a: string; b: string; aList: PAssert[]; bList: PAssert[]; context: Set<string> }>();
+  for (const pa of pAsserts) {
+    const [a, b] = pa.owner < pa.target ? [pa.owner, pa.target] : [pa.target, pa.owner];
+    const k = `${a}|${b}`;
+    let e = pairMap.get(k);
+    if (!e) {
+      e = { a, b, aList: [], bList: [], context: new Set() };
+      pairMap.set(k, e);
+    }
+    if (pa.owner === a) e.aList.push(pa);
+    else e.bList.push(pa);
+    const m = stepMeta.get(pa.ownerStepId);
+    if (m) e.context.add(m.action);
+  }
+  const parallelPairs: ParallelPair[] = [];
+  for (const e of pairMap.values()) {
+    const aAss = e.aList.length > 0;
+    const bAss = e.bList.length > 0;
+    let status: ParallelStatus;
+    if (aAss && bAss) {
+      const bothPinned = e.aList.some((x) => x.pinned) && e.bList.some((x) => x.pinned);
+      let consistent = !bothPinned;
+      if (bothPinned) {
+        for (const ax of e.aList)
+          for (const bx of e.bList)
+            if (ax.pinned === bx.ownerStepId && bx.pinned === ax.ownerStepId) consistent = true;
+      }
+      status = consistent ? "matched" : "step_mismatch";
+    } else {
+      const other = aAss ? e.b : e.a;
+      status = submittedSet.has(other) ? "mismatch" : "pending";
+    }
+    parallelPairs.push({ a: e.a, b: e.b, status, aAsserted: aAss, bAsserted: bAss, context: [...e.context] });
+  }
 
   const missingIds = positions.filter((p) => !submittedSet.has(p.id)).map((p) => p.id);
 
@@ -295,6 +362,7 @@ export function reconcile(
     edges: allEdges,
     matched: allEdges.filter((e) => e.status === "matched"),
     oneSided: allEdges.filter((e) => e.status !== "matched"),
+    parallelPairs,
     workload,
     structure,
   };

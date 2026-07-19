@@ -71,7 +71,7 @@ export function SwimlaneView({
     }
 
     // links, with hidden-lane handling
-    type Laid = { id: string; d: string; kind: string; status?: EdgeStatus; what?: string; from: string; to: string };
+    type Laid = { id: string; d: string; kind: string; status?: EdgeStatus; what?: string; from: string; to: string; faint?: boolean };
     const links: Laid[] = [];
     const floaties: { id: string; x: number; y: number; label: string; targetPos?: string }[] = [];
     const nodeById = new Map(swim.nodes.map((n) => [n.id, n]));
@@ -113,7 +113,7 @@ export function SwimlaneView({
         const mx = (x1 + x2) / 2;
         d = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
       }
-      links.push({ id: l.id, d, kind: l.kind, status: l.status, what: l.what, from: a.id, to: b.id });
+      links.push({ id: l.id, d, kind: l.kind, status: l.status, what: l.what, from: a.id, to: b.id, faint: l.faint });
     }
 
     const width = PAD_X + cols.length * COL_W + 60;
@@ -127,10 +127,14 @@ export function SwimlaneView({
   const linkColor = (kind: string, status?: EdgeStatus) => {
     if (kind === "seq") return "#6C7A73";
     if (kind === "fail") return "#C0392B";
+    if (kind === "parallel") return "#7C5CBF";
     if (status === "matched") return "#128A64";
     return "#B65418";
   };
-  const linkDashed = (kind: string, status?: EdgeStatus) => kind === "fail" || (kind !== "seq" && status !== "matched");
+  const linkDashed = (kind: string, status?: EdgeStatus) => kind === "fail" || kind === "parallel" || (kind !== "seq" && status !== "matched");
+  // parallel = no arrowhead (happens at the same time, no direction)
+  const linkMarker = (kind: string, status?: EdgeStatus) =>
+    kind === "parallel" ? undefined : `url(#${kind === "seq" ? "a-seq" : kind === "fail" ? "a-fail" : status === "matched" ? "a-ok" : "a-warn"})`;
 
   const connected = (nid: string): Set<string> => {
     const s = new Set<string>([nid]);
@@ -241,10 +245,16 @@ export function SwimlaneView({
                   stroke={linkColor(l.kind, l.status)}
                   strokeWidth={l.kind === "seq" ? 1.6 : 1.8}
                   strokeDasharray={linkDashed(l.kind, l.status) ? "5 4" : undefined}
-                  markerEnd={`url(#${l.kind === "seq" ? "a-seq" : l.kind === "fail" ? "a-fail" : l.status === "matched" ? "a-ok" : "a-warn"})`}
-                  opacity={linkDim(l) ? 0.12 : 0.9}
+                  markerEnd={linkMarker(l.kind, l.status)}
+                  opacity={linkDim(l) ? 0.12 : l.faint ? 0.45 : 0.9}
                 >
-                  {l.what ? <title>{l.what}{l.status ? ` · ${l.status === "matched" ? "ยืนยันสองฝั่ง" : l.status === "mismatch" ? "ไม่ตรงกัน" : "รออีกฝั่ง"}` : ""}</title> : null}
+                  {l.what || l.kind === "parallel" ? (
+                    <title>
+                      {l.kind === "parallel" ? "ทำควบคู่กัน" : ""}
+                      {l.what ? (l.kind === "parallel" ? `: ${l.what}` : l.what) : ""}
+                      {l.status ? ` · ${l.status === "matched" ? "ยืนยันสองฝั่ง" : l.status === "mismatch" ? "ไม่ตรงกัน" : "รออีกฝั่ง"}` : ""}
+                    </title>
+                  ) : null}
                 </path>
               ))}
 
@@ -333,12 +343,19 @@ export function SwimlaneView({
             ["จุดส่งงาน", swim.stats.sends],
             ["จุดอนุมัติ", swim.stats.approvals],
             ["จุดตีกลับ", swim.stats.returns],
+            ["จุดทำควบคู่", swim.stats.parallels],
           ].map(([k, v]) => (
             <div key={String(k)} className="flex justify-between py-0.5">
               <span className="text-[var(--muted)]">{k}</span>
               <b>{v}</b>
             </div>
           ))}
+          {swim.stats.parallelsUnpinned > 0 && (
+            <div className="flex justify-between py-0.5 mt-1 pt-1 border-t border-[var(--line)]">
+              <span className="text-[#7C5CBF]">ยังไม่ระบุขั้นตอนคู่ขนาน</span>
+              <b className="text-[#7C5CBF]">{swim.stats.parallelsUnpinned}</b>
+            </div>
+          )}
         </div>
 
         {swim.crossJob.length > 0 && (
@@ -368,8 +385,18 @@ function renderNode(n: SwimNode) {
     const w = 128;
     return (
       <>
-        <rect x={-w / 2} y={-14} width={w} height={28} rx={9} fill={n.external ? "#EFE7DE" : "#EEF1EE"} stroke={n.external ? "#D9C2A6" : "#CBD5CF"} />
-        <text x={0} y={4} fontSize={10.5} textAnchor="middle" fill={n.external ? "#8A5A1C" : "#3A4A43"}>
+        <rect
+          x={-w / 2}
+          y={-14}
+          width={w}
+          height={28}
+          rx={9}
+          fill={n.faint ? "transparent" : n.external ? "#EFE7DE" : "#EEF1EE"}
+          stroke={n.faint ? "#B7A6DE" : n.external ? "#D9C2A6" : "#CBD5CF"}
+          strokeDasharray={n.faint ? "4 3" : undefined}
+          opacity={n.faint ? 0.85 : 1}
+        />
+        <text x={0} y={4} fontSize={10.5} textAnchor="middle" fill={n.faint ? "#7C5CBF" : n.external ? "#8A5A1C" : "#3A4A43"}>
           {truncate(n.label, 22)}
         </text>
       </>

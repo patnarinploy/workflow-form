@@ -26,15 +26,22 @@ export function newId(): string {
 // v4 model: position -> job -> step, with optional per-step links.
 // Each handoff is a LINE ITEM (not a single multi-select) because one step can
 // send different things to different positions, sometimes conditionally.
-export type LinkKind = "waits_for" | "sends_to" | "approver";
+export type LinkKind = "waits_for" | "sends_to" | "approver" | "parallel";
 
 // "positions" holds tokens: position ids + "@external"
 export type WaitItem = { what: string; positions: string[] };
 export type SendItem = { what: string; positions: string[]; conditional: boolean; condition: string };
 
+// Parallel work: happens AT THE SAME TIME as one specific step of another
+// position (single target per row, optionally pinned to their step).
+// position = token (position id or "@external"); stepId = target step uuid, or
+// "" when not yet pinned (target hasn't filled their form / step not chosen).
+export type ParallelItem = { position: string; stepId: string; what: string };
+
 export type WaitsGroup = { enabled: boolean; items: WaitItem[] };
 export type SendsGroup = { enabled: boolean; items: SendItem[] };
 export type ApproverGroup = { enabled: boolean; positions: string[] };
+export type ParallelGroup = { enabled: boolean; items: ParallelItem[] };
 
 // Pass/fail decision point. "decider" is a token (position id or "@external"),
 // defaulting to the step owner's own position. If it fails, exactly one target:
@@ -55,6 +62,7 @@ export type Step = {
   sendsTo: SendsGroup;
   approver: ApproverGroup;
   decision: Decision;
+  parallel: ParallelGroup;
 };
 
 export type Job = {
@@ -80,6 +88,8 @@ export const emptyWaits = (): WaitsGroup => ({ enabled: false, items: [] });
 export const emptySends = (): SendsGroup => ({ enabled: false, items: [] });
 export const emptyApprover = (): ApproverGroup => ({ enabled: false, positions: [] });
 export const emptyDecision = (): Decision => ({ enabled: false, decider: "", failKind: "", failStepId: "", failPosition: "", failReason: "" });
+export const emptyParallelItem = (): ParallelItem => ({ position: "", stepId: "", what: "" });
+export const emptyParallel = (): ParallelGroup => ({ enabled: false, items: [] });
 
 export const emptyStep = (): Step => ({
   id: newId(),
@@ -88,6 +98,7 @@ export const emptyStep = (): Step => ({
   sendsTo: emptySends(),
   approver: emptyApprover(),
   decision: emptyDecision(),
+  parallel: emptyParallel(),
 });
 
 export const emptyJob = (): Job => ({
@@ -140,6 +151,7 @@ export type StepLinkRow = {
   what: string | null;
   conditional: boolean;
   condition: string | null;
+  parallel_step_id: string | null; // kind='parallel' only; target step uuid or null
 };
 
 export type StepLinkTargetRow = {

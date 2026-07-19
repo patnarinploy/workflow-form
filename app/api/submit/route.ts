@@ -21,6 +21,7 @@ type LinkDraft = {
   conditional: boolean;
   condition: string | null;
   tokens: string[]; // position tokens for this item
+  parallel_step_id?: string | null; // kind='parallel' only
 };
 
 export async function POST(req: Request) {
@@ -156,8 +157,33 @@ export async function POST(req: Request) {
           drafts.push({ step_id: stepId, kind: "approver", link_order: 0, what: null, conditional: false, condition: null, tokens });
         }
       }
+      if (s.parallel?.enabled) {
+        s.parallel.items.forEach((item, k) => {
+          const tokens = cleanTokens([item.position]); // single target per parallel row
+          if (tokens.length === 0) return;
+          drafts.push({
+            step_id: stepId,
+            kind: "parallel",
+            link_order: k,
+            what: item.what?.trim() || null,
+            conditional: false,
+            condition: null,
+            tokens,
+            parallel_step_id: item.stepId?.trim() || null,
+          });
+        });
+      }
     });
   });
+
+  // Validate parallel_step_ids exist (they point at OTHER positions' steps; a
+  // stale draft could reference a since-deleted step -> null it out, don't FK-fail).
+  const wantedParallelIds = Array.from(new Set(drafts.map((d) => d.parallel_step_id).filter((v): v is string => !!v)));
+  const validParallelIds = new Set<string>();
+  if (wantedParallelIds.length) {
+    const { data: existing } = await supabase.from("steps").select("id").in("id", wantedParallelIds);
+    for (const r of (existing as { id: string }[] | null) ?? []) validParallelIds.add(r.id);
+  }
 
   if (drafts.length) {
     const { data: insertedLinks, error: linkErr } = await supabase
@@ -170,6 +196,7 @@ export async function POST(req: Request) {
           what: d.what,
           conditional: d.conditional,
           condition: d.condition,
+          parallel_step_id: d.parallel_step_id && validParallelIds.has(d.parallel_step_id) ? d.parallel_step_id : null,
         }))
       )
       .select("id, step_id, kind, link_order");
