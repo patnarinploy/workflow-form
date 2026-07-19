@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Reconciliation, PairEdge } from "@/lib/reconcile";
 import { useDirectory } from "@/components/DirectoryProvider";
-import { FlowChart } from "./FlowChart";
+import { FlowViews } from "./FlowViews";
 import { AdminNav } from "./AdminNav";
 import { LogoutButton } from "@/app/admin/LogoutButton";
 
@@ -72,7 +72,7 @@ export function AdminDashboard({
       </div>
 
       {tab === "progress" && <ProgressTab result={result} blockers={blockers} projectProgress={projectProgress} />}
-      {tab === "flow" && <FlowChart structure={result.structure} edges={result.edges} />}
+      {tab === "flow" && <FlowViews structure={result.structure} edges={result.edges} workload={result.workload} />}
       {tab === "mismatch" && <MismatchTab result={result} />}
       {tab === "workload" && <WorkloadTab result={result} />}
     </div>
