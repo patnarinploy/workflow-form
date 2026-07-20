@@ -185,15 +185,16 @@ function ApproverEditor({ group, onChange }: { group: ApproverGroup; onChange: (
   );
 }
 
-// ---- parallel (happens at the same time as another position's step) ----
+// ---- parallel (happens at the same time as OTHER positions' steps) ----
+// One row = one parallel set; can target many positions, each pinned to its own step.
 function ParallelEditor({ group, onChange, positionId }: { group: ParallelGroup; onChange: (g: ParallelGroup) => void; positionId: string }) {
   const items = group.items ?? [];
   const [cache, setCache] = useState<CacheState>({});
 
-  // fetch the steps of each selected (real, non-external) position for the picker
+  // fetch steps for every real (non-external) target position across all rows
   useEffect(() => {
     const wanted = Array.from(
-      new Set(items.map((it) => it.position).filter((p) => p && !isSpecialToken(p)))
+      new Set(items.flatMap((it) => it.targets.map((t) => t.position)).filter((p) => p && !isSpecialToken(p)))
     );
     for (const pos of wanted) {
       if (cache[pos] !== undefined) continue;
@@ -212,67 +213,79 @@ function ParallelEditor({ group, onChange, positionId }: { group: ParallelGroup;
   };
   const toggle = (v: boolean) => onChange({ enabled: v, items: v && items.length === 0 ? [emptyParallelItem()] : items });
 
+  // reconcile the multi-position select -> targets (keep pinned steps for kept positions)
+  const setPositions = (i: number, item: ParallelItem, tokens: string[]) => {
+    const targets = tokens.map((tok) => item.targets.find((t) => t.position === tok) ?? { position: tok, stepId: "" });
+    setItem(i, { ...item, targets });
+  };
+  const setTargetStep = (i: number, item: ParallelItem, pos: string, stepId: string) => {
+    setItem(i, { ...item, targets: item.targets.map((t) => (t.position === pos ? { ...t, stepId } : t)) });
+  };
+
   return (
     <div>
       <GroupHeader checked={group.enabled} onToggle={toggle} label="ทำควบคู่กับตำแหน่งอื่น (เกิดพร้อมกัน)" color="#7C5CBF" />
       {group.enabled && (
         <div className="mt-2 ml-6 flex flex-col gap-2">
-          {items.map((item, i) => {
-            const external = isSpecialToken(item.position);
-            const opts = item.position && !external ? cache[item.position] : undefined;
-            const notFilled = item.position && !external && Array.isArray(opts) && opts.length === 0;
-            const waiting = item.position && !external && !item.stepId;
-            return (
-              <ItemCard key={i} onRemove={items.length > 1 ? () => onChange({ ...group, items: items.filter((_, j) => j !== i) }) : undefined}>
-                <div>
-                  <label className="block text-[12px] text-[var(--muted)] mb-1">ควบคู่กับตำแหน่งไหน *</label>
-                  <PositionCombobox
-                    value={item.position}
-                    onChange={(position) => setItem(i, { ...item, position, stepId: "" })}
-                    specials={EXTERNAL}
-                    exclude={[positionId]}
-                    placeholder="เลือกตำแหน่งที่ทำพร้อมกัน…"
-                  />
-                </div>
-
-                {item.position && !external && (
-                  <div>
-                    <label className="block text-[12px] text-[var(--muted)] mb-1">ควบคู่กับขั้นตอนไหนของเขา</label>
-                    {opts === "loading" ? (
-                      <div className="text-[12px] text-[var(--faint)]">กำลังโหลดขั้นตอน…</div>
-                    ) : (
-                      <>
-                        <select value={item.stepId} onChange={(e) => setItem(i, { ...item, stepId: e.target.value })} className={fieldCls}>
-                          <option value="">ยังไม่ระบุขั้นตอน (ผูกกับตำแหน่งไว้ก่อน)</option>
-                          {Array.isArray(opts) &&
-                            opts.map((o) => (
-                              <option key={o.stepId} value={o.stepId}>{o.label}</option>
-                            ))}
-                        </select>
-                        {notFilled && (
-                          <div className="text-[11.5px] text-[var(--faint)] mt-1">ตำแหน่งนี้ยังไม่ได้กรอกงาน — เลือกได้ภายหลังเมื่อเขากรอกแล้ว</div>
-                        )}
-                        {waiting && notFilled && (
-                          <span className="inline-block mt-1 text-[10.5px] rounded-full bg-[#EFE9F6] text-[#5B3E9B] px-2 py-0.5">รอผูกขั้นตอนคู่ขนาน</span>
-                        )}
-                        {waiting && !notFilled && Array.isArray(opts) && (
-                          <span className="inline-block mt-1 text-[10.5px] rounded-full bg-[var(--accent-soft)] text-[#0F5F47] px-2 py-0.5">ตำแหน่งนี้กรอกงานแล้ว — เลือกขั้นตอนคู่ขนานได้เลย</span>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
-
-                <input
-                  type="text"
-                  value={item.what}
-                  placeholder="ทำอะไรควบคู่ (ถ้ามี) เช่น ถ่าย Behind the Scenes"
-                  onChange={(e) => setItem(i, { ...item, what: e.target.value })}
-                  className={fieldCls}
+          {items.map((item, i) => (
+            <ItemCard key={i} onRemove={items.length > 1 ? () => onChange({ ...group, items: items.filter((_, j) => j !== i) }) : undefined}>
+              <input
+                type="text"
+                value={item.what}
+                placeholder="ทำอะไรควบคู่ (ถ้ามี) เช่น ถ่าย Behind the Scenes"
+                onChange={(e) => setItem(i, { ...item, what: e.target.value })}
+                className={fieldCls}
+              />
+              <div>
+                <label className="block text-[12px] text-[var(--muted)] mb-1">ควบคู่กับตำแหน่งไหนบ้าง *</label>
+                <PositionSelect
+                  value={item.targets.map((t) => t.position)}
+                  onChange={(tokens) => setPositions(i, item, tokens)}
+                  specials={EXTERNAL}
+                  exclude={[positionId]}
+                  placeholder="เลือกตำแหน่งที่ทำพร้อมกัน (เลือกได้หลายตำแหน่ง)…"
                 />
-              </ItemCard>
-            );
-          })}
+              </div>
+
+              {/* per-position step picker */}
+              {item.targets.filter((t) => !isSpecialToken(t.position)).length > 0 && (
+                <div className="flex flex-col gap-2 pl-1 border-l-2 border-[#E0D6F2]">
+                  {item.targets
+                    .filter((t) => !isSpecialToken(t.position))
+                    .map((t) => {
+                      const opts = cache[t.position];
+                      const notFilled = Array.isArray(opts) && opts.length === 0;
+                      const waiting = !t.stepId;
+                      return (
+                        <div key={t.position} className="pl-2">
+                          <label className="block text-[11.5px] text-[var(--muted)] mb-0.5">ควบคู่กับขั้นตอนไหนของตำแหน่งนี้</label>
+                          {opts === "loading" ? (
+                            <div className="text-[12px] text-[var(--faint)]">กำลังโหลดขั้นตอน…</div>
+                          ) : (
+                            <>
+                              <select value={t.stepId} onChange={(e) => setTargetStep(i, item, t.position, e.target.value)} className={fieldCls}>
+                                <option value="">ยังไม่ระบุขั้นตอน (ผูกกับตำแหน่งไว้ก่อน)</option>
+                                {Array.isArray(opts) &&
+                                  opts.map((o) => (
+                                    <option key={o.stepId} value={o.stepId}>{o.label}</option>
+                                  ))}
+                              </select>
+                              {notFilled && <div className="text-[11px] text-[var(--faint)] mt-0.5">ตำแหน่งนี้ยังไม่ได้กรอกงาน — เลือกได้ภายหลัง</div>}
+                              {waiting && notFilled && (
+                                <span className="inline-block mt-0.5 text-[10.5px] rounded-full bg-[#EFE9F6] text-[#5B3E9B] px-2 py-0.5">รอผูกขั้นตอนคู่ขนาน</span>
+                              )}
+                              {waiting && !notFilled && Array.isArray(opts) && (
+                                <span className="inline-block mt-0.5 text-[10.5px] rounded-full bg-[var(--accent-soft)] text-[#0F5F47] px-2 py-0.5">กรอกงานแล้ว — เลือกขั้นตอนได้เลย</span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </ItemCard>
+          ))}
           {addBtn("+ เพิ่มงานคู่ขนานอีก", () => onChange({ ...group, items: [...items, emptyParallelItem()] }))}
         </div>
       )}

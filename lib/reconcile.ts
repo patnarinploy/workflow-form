@@ -135,6 +135,14 @@ export function reconcile(
   }
 
   const targetsByLink = splitTargets(data.targets);
+  // parallel targets keep each target's own pinned step
+  const parallelTargetsByLink = new Map<string, { position: string; stepId: string | null; external: boolean }[]>();
+  for (const t of data.targets) {
+    const arr = parallelTargetsByLink.get(t.link_id) ?? [];
+    if (t.external) arr.push({ position: "", stepId: null, external: true });
+    else if (t.position_id) arr.push({ position: t.position_id, stepId: t.parallel_step_id ?? null, external: false });
+    parallelTargetsByLink.set(t.link_id, arr);
+  }
 
   const submittedIds = data.responses.map((r) => r.position_id);
   const submittedSet = new Set(submittedIds);
@@ -297,10 +305,14 @@ export function reconcile(
             const approverExternal = approverLinks.some((l) => targetsByLink.get(l.id)?.external);
             const parallels: FlowParallel[] = ls
               .filter((l) => l.kind === "parallel")
-              .map((l) => {
-                const tg = targetsByLink.get(l.id) ?? { positions: [], external: false };
-                return { position: tg.positions[0] ?? "", stepId: l.parallel_step_id ?? null, what: l.what ?? "", external: tg.external };
-              })
+              .flatMap((l) =>
+                (parallelTargetsByLink.get(l.id) ?? []).map((tg) => ({
+                  position: tg.position,
+                  stepId: tg.stepId,
+                  what: l.what ?? "",
+                  external: tg.external,
+                }))
+              )
               .filter((p) => p.position || p.external);
             return { id: s.id, order: s.step_order, action: s.action, sends, waits, approvers, approverExternal, decision: flowDecision(s.id), parallels };
           }),
@@ -314,9 +326,10 @@ export function reconcile(
     if (link.kind !== "parallel") continue;
     const meta = stepMeta.get(link.step_id);
     if (!meta) continue;
-    const targetPos = targetsByLink.get(link.id)?.positions[0];
-    if (!targetPos) continue; // external parallels don't reconcile
-    pAsserts.push({ owner: meta.owner, ownerStepId: link.step_id, target: targetPos, pinned: link.parallel_step_id ?? null });
+    for (const tg of parallelTargetsByLink.get(link.id) ?? []) {
+      if (tg.external || !tg.position) continue; // external parallels don't reconcile
+      pAsserts.push({ owner: meta.owner, ownerStepId: link.step_id, target: tg.position, pinned: tg.stepId });
+    }
   }
   const pairMap = new Map<string, { a: string; b: string; aList: PAssert[]; bList: PAssert[]; context: Set<string> }>();
   for (const pa of pAsserts) {

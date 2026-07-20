@@ -32,11 +32,12 @@ export type LinkKind = "waits_for" | "sends_to" | "approver" | "parallel";
 export type WaitItem = { what: string; positions: string[] };
 export type SendItem = { what: string; positions: string[]; conditional: boolean; condition: string };
 
-// Parallel work: happens AT THE SAME TIME as one specific step of another
-// position (single target per row, optionally pinned to their step).
+// Parallel work: one row happens AT THE SAME TIME as (possibly several) other
+// positions. Each target position is pinned to ITS OWN step independently.
 // position = token (position id or "@external"); stepId = target step uuid, or
-// "" when not yet pinned (target hasn't filled their form / step not chosen).
-export type ParallelItem = { position: string; stepId: string; what: string };
+// "" when not yet pinned. External targets have no step.
+export type ParallelTarget = { position: string; stepId: string };
+export type ParallelItem = { what: string; targets: ParallelTarget[] };
 
 export type WaitsGroup = { enabled: boolean; items: WaitItem[] };
 export type SendsGroup = { enabled: boolean; items: SendItem[] };
@@ -88,7 +89,7 @@ export const emptyWaits = (): WaitsGroup => ({ enabled: false, items: [] });
 export const emptySends = (): SendsGroup => ({ enabled: false, items: [] });
 export const emptyApprover = (): ApproverGroup => ({ enabled: false, positions: [] });
 export const emptyDecision = (): Decision => ({ enabled: false, decider: "", failKind: "", failStepId: "", failPosition: "", failReason: "" });
-export const emptyParallelItem = (): ParallelItem => ({ position: "", stepId: "", what: "" });
+export const emptyParallelItem = (): ParallelItem => ({ what: "", targets: [] });
 export const emptyParallel = (): ParallelGroup => ({ enabled: false, items: [] });
 
 export const emptyStep = (): Step => ({
@@ -159,6 +160,7 @@ export type StepLinkTargetRow = {
   link_id: string;
   position_id: string | null;
   external: boolean;
+  parallel_step_id: string | null; // per-target pinned step (kind='parallel' only)
 };
 
 export type StepDecisionRow = {

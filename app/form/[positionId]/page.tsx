@@ -71,10 +71,18 @@ export default async function FormPage({
     }
 
     const tokensByLink = new Map<string, string[]>();
+    // parallel targets keep each target's own pinned step
+    const parallelTargetsByLink = new Map<string, { token: string; stepId: string }[]>();
     for (const t of targets) {
+      const token = t.external ? specialToken("external") : (t.position_id ?? "");
       const arr = tokensByLink.get(t.link_id) ?? [];
-      arr.push(t.external ? specialToken("external") : (t.position_id ?? ""));
+      arr.push(token);
       tokensByLink.set(t.link_id, arr.filter(Boolean));
+      if (token) {
+        const parr = parallelTargetsByLink.get(t.link_id) ?? [];
+        parr.push({ token, stepId: t.parallel_step_id ?? "" });
+        parallelTargetsByLink.set(t.link_id, parr);
+      }
     }
     const linksByStep = new Map<string, StepLinkRow[]>();
     for (const l of links) {
@@ -114,8 +122,11 @@ export default async function FormPage({
       const approverPos = ls.filter((l) => l.kind === "approver").flatMap((l) => tokensByLink.get(l.id) ?? []);
       const parallels = ls
         .filter((l) => l.kind === "parallel")
-        .map((l) => ({ position: (tokensByLink.get(l.id) ?? [])[0] ?? "", stepId: l.parallel_step_id ?? "", what: l.what ?? "" }))
-        .filter((p) => p.position);
+        .map((l) => ({
+          what: l.what ?? "",
+          targets: (parallelTargetsByLink.get(l.id) ?? []).map((t) => ({ position: t.token, stepId: t.stepId })),
+        }))
+        .filter((p) => p.targets.length > 0);
       const base = emptyStep();
       return {
         id: s.id,

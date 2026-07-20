@@ -20,8 +20,9 @@ type LinkDraft = {
   what: string | null;
   conditional: boolean;
   condition: string | null;
-  tokens: string[]; // position tokens for this item
-  parallel_step_id?: string | null; // kind='parallel' only
+  tokens: string[]; // position tokens for this item (non-parallel)
+  // kind='parallel': one target per position, each with its own pinned step
+  parallelTargets?: { token: string; stepId: string | null }[];
 };
 
 export async function POST(req: Request) {
@@ -159,26 +160,21 @@ export async function POST(req: Request) {
       }
       if (s.parallel?.enabled) {
         s.parallel.items.forEach((item, k) => {
-          const tokens = cleanTokens([item.position]); // single target per parallel row
-          if (tokens.length === 0) return;
-          drafts.push({
-            step_id: stepId,
-            kind: "parallel",
-            link_order: k,
-            what: item.what?.trim() || null,
-            conditional: false,
-            condition: null,
-            tokens,
-            parallel_step_id: item.stepId?.trim() || null,
-          });
+          const targets = (item.targets ?? [])
+            .filter((t) => t.position && (isSpecialToken(t.position) || getPosition(t.position)))
+            .map((t) => ({ token: t.position, stepId: t.stepId?.trim() || null }));
+          if (targets.length === 0) return;
+          drafts.push({ step_id: stepId, kind: "parallel", link_order: k, what: item.what?.trim() || null, conditional: false, condition: null, tokens: [], parallelTargets: targets });
         });
       }
     });
   });
 
-  // Validate parallel_step_ids exist (they point at OTHER positions' steps; a
-  // stale draft could reference a since-deleted step -> null it out, don't FK-fail).
-  const wantedParallelIds = Array.from(new Set(drafts.map((d) => d.parallel_step_id).filter((v): v is string => !!v)));
+  // Validate pinned parallel step ids exist (they point at OTHER positions' steps;
+  // a stale draft could reference a since-deleted step -> null it out, don't FK-fail).
+  const wantedParallelIds = Array.from(
+    new Set(drafts.flatMap((d) => d.parallelTargets ?? []).map((t) => t.stepId).filter((v): v is string => !!v))
+  );
   const validParallelIds = new Set<string>();
   if (wantedParallelIds.length) {
     const { data: existing } = await supabase.from("steps").select("id").in("id", wantedParallelIds);
@@ -196,7 +192,6 @@ export async function POST(req: Request) {
           what: d.what,
           conditional: d.conditional,
           condition: d.condition,
-          parallel_step_id: d.parallel_step_id && validParallelIds.has(d.parallel_step_id) ? d.parallel_step_id : null,
         }))
       )
       .select("id, step_id, kind, link_order");
@@ -208,13 +203,21 @@ export async function POST(req: Request) {
       linkIdByKey.set(`${l.step_id}:${l.kind}:${l.link_order}`, l.id);
     }
 
-    const targetRows: { link_id: string; position_id: string | null; external: boolean }[] = [];
+    const targetRows: { link_id: string; position_id: string | null; external: boolean; parallel_step_id: string | null }[] = [];
     for (const d of drafts) {
       const linkId = linkIdByKey.get(`${d.step_id}:${d.kind}:${d.link_order}`);
       if (!linkId) continue;
-      for (const token of d.tokens) {
-        if (isSpecialToken(token)) targetRows.push({ link_id: linkId, position_id: null, external: true });
-        else targetRows.push({ link_id: linkId, position_id: token, external: false });
+      if (d.kind === "parallel") {
+        for (const t of d.parallelTargets ?? []) {
+          const pinned = t.stepId && validParallelIds.has(t.stepId) ? t.stepId : null;
+          if (isSpecialToken(t.token)) targetRows.push({ link_id: linkId, position_id: null, external: true, parallel_step_id: null });
+          else targetRows.push({ link_id: linkId, position_id: t.token, external: false, parallel_step_id: pinned });
+        }
+      } else {
+        for (const token of d.tokens) {
+          if (isSpecialToken(token)) targetRows.push({ link_id: linkId, position_id: null, external: true, parallel_step_id: null });
+          else targetRows.push({ link_id: linkId, position_id: token, external: false, parallel_step_id: null });
+        }
       }
     }
     if (targetRows.length) {
