@@ -13,6 +13,31 @@ function draftKey(positionId: string) {
 
 // Coerce a draft loaded from localStorage into the current shape. Older drafts may
 // be missing step.id / step.decision / group.items etc.; merge each step onto a
+// Coerce a stored parallel group into the CURRENT shape { enabled, items:[{ what,
+// targets:[{position,stepId}] }] }. Handles the old single-target shape
+// ({ position, stepId, what }) so a pre-v10.1 draft can't crash the editor.
+function normalizeParallel(pl: unknown): Step["parallel"] {
+  const g = (pl ?? {}) as Record<string, unknown>;
+  if (!Array.isArray(g.items)) return emptyStep().parallel;
+  const items = (g.items as unknown[]).map((it) => {
+    const o = (it ?? {}) as Record<string, unknown>;
+    const what = typeof o.what === "string" ? o.what : "";
+    if (Array.isArray(o.targets)) {
+      const targets = (o.targets as unknown[])
+        .map((t) => (t ?? {}) as Record<string, unknown>)
+        .filter((t) => typeof t.position === "string" && t.position)
+        .map((t) => ({ position: t.position as string, stepId: typeof t.stepId === "string" ? t.stepId : "" }));
+      return { what, targets };
+    }
+    // legacy single-target shape
+    if (typeof o.position === "string" && o.position) {
+      return { what, targets: [{ position: o.position, stepId: typeof o.stepId === "string" ? o.stepId : "" }] };
+    }
+    return { what, targets: [] };
+  });
+  return { enabled: !!g.enabled, items };
+}
+
 // fresh emptyStep() so a stale draft can never crash the editor.
 function normalizeJobs(raw: unknown): Job[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
@@ -36,7 +61,7 @@ function normalizeJobs(raw: unknown): Job[] | null {
             sendsTo: sd && Array.isArray(sd.items) ? (sd as unknown as Step["sendsTo"]) : es.sendsTo,
             approver: ap && Array.isArray(ap.positions) ? (ap as unknown as Step["approver"]) : es.approver,
             decision: dc && typeof dc.enabled === "boolean" ? ({ ...es.decision, ...dc } as Step["decision"]) : es.decision,
-            parallel: pl && Array.isArray(pl.items) ? (pl as unknown as Step["parallel"]) : es.parallel,
+            parallel: normalizeParallel(pl),
           };
         })
       : base.steps;

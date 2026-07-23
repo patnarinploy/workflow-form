@@ -194,7 +194,7 @@ function ParallelEditor({ group, onChange, positionId }: { group: ParallelGroup;
   // fetch steps for every real (non-external) target position across all rows
   useEffect(() => {
     const wanted = Array.from(
-      new Set(items.flatMap((it) => it.targets.map((t) => t.position)).filter((p) => p && !isSpecialToken(p)))
+      new Set(items.flatMap((it) => (it.targets ?? []).map((t) => t.position)).filter((p) => p && !isSpecialToken(p)))
     );
     for (const pos of wanted) {
       if (cache[pos] !== undefined) continue;
