@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FlowPosition, PairEdge, EdgeStatus } from "@/lib/reconcile";
 import { useDirectory } from "@/components/DirectoryProvider";
 import { buildSwimlane, EXTERNAL_LANE, SwimNode } from "@/lib/swimlane";
@@ -148,12 +148,27 @@ export function SwimlaneView({
   const nodeDim = (nid: string) => hoverSet != null && !hoverSet.has(nid);
   const linkDim = (l: { from: string; to: string }) => hoverSet != null && !(hoverSet.has(l.from) && hoverSet.has(l.to));
 
-  // pan/zoom handlers
-  const onWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-    setTf((t) => ({ ...t, k: Math.min(2.5, Math.max(0.3, t.k * factor)) }));
-  };
+  // Native NON-passive wheel listener so preventDefault actually works — a React
+  // onWheel is passive, so its preventDefault is ignored and a trackpad
+  // two-finger swipe-right triggers the browser BACK gesture (which then fails to
+  // reload the previous RSC page). Wheel pans; ctrl/⌘+wheel (pinch) zooms.
+  const svgWrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = svgWrapRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        const factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+        setTf((t) => ({ ...t, k: Math.min(2.5, Math.max(0.3, t.k * factor)) }));
+      } else {
+        setTf((t) => ({ ...t, x: t.x - e.deltaX, y: t.y - e.deltaY }));
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
   const onPointerDown = (e: React.PointerEvent) => {
     drag.current = { x: e.clientX, y: e.clientY, ox: tf.x, oy: tf.y };
     (e.target as Element).setPointerCapture?.(e.pointerId);
@@ -199,12 +214,11 @@ export function SwimlaneView({
           <button onClick={() => setTf({ x: 0, y: 0, k: 1 })} className="ml-auto text-[12px] border border-[var(--line)] rounded-full px-2.5 py-1">รีเซ็ตมุมมอง</button>
           <button onClick={exportSvg} className="text-[12px] font-semibold text-[var(--accent)] border border-[var(--accent-line)] rounded-full px-2.5 py-1">↓ SVG</button>
         </div>
-        <div style={{ height: 520, cursor: drag.current ? "grabbing" : "grab", touchAction: "none" }}>
+        <div ref={svgWrapRef} style={{ height: 520, cursor: drag.current ? "grabbing" : "grab", touchAction: "none", overscrollBehavior: "none" }}>
           <svg
             ref={svgRef}
             width="100%"
             height="520"
-            onWheel={onWheel}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
