@@ -23,6 +23,15 @@
   --font-disp: var(--font-disp);
 }
 
+html,
+body {
+  /* Kill the horizontal overscroll "swipe to go back/forward" gesture app-wide.
+     This tool has many wide, horizontally-scrollable areas (workflow swimlane,
+     workload matrix, focus view); a two-finger swipe-right at their edge used to
+     navigate back and then fail to reload the previous page. */
+  overscroll-behavior-x: none;
+}
+
 body {
   font-family: var(--font-body), sans-serif;
 }
