@@ -44,12 +44,13 @@ export type SendsGroup = { enabled: boolean; items: SendItem[] };
 export type ApproverGroup = { enabled: boolean; positions: string[] };
 export type ParallelGroup = { enabled: boolean; items: ParallelItem[] };
 
-// Pass/fail decision point. "decider" is a token (position id or "@external"),
-// defaulting to the step owner's own position. If it fails, exactly one target:
-// a step in the same job (failStepId), another position (failPosition), else nothing set.
+// Pass/fail decision point. "deciders" are tokens (position ids + "@external"),
+// defaulting to the step owner's own position (can be several people). If it
+// fails, exactly one target: a step in the same job (failStepId), another
+// position (failPosition), else nothing set.
 export type Decision = {
   enabled: boolean;
-  decider: string; // token; default = own position
+  deciders: string[]; // tokens; default = [own position]
   failKind: "" | "step" | "position";
   failStepId: string; // step id when failKind === "step"
   failPosition: string; // token when failKind === "position"
@@ -88,7 +89,7 @@ export const emptySendItem = (): SendItem => ({ what: "", positions: [], conditi
 export const emptyWaits = (): WaitsGroup => ({ enabled: false, items: [] });
 export const emptySends = (): SendsGroup => ({ enabled: false, items: [] });
 export const emptyApprover = (): ApproverGroup => ({ enabled: false, positions: [] });
-export const emptyDecision = (): Decision => ({ enabled: false, decider: "", failKind: "", failStepId: "", failPosition: "", failReason: "" });
+export const emptyDecision = (): Decision => ({ enabled: false, deciders: [], failKind: "", failStepId: "", failPosition: "", failReason: "" });
 export const emptyParallelItem = (): ParallelItem => ({ what: "", targets: [] });
 export const emptyParallel = (): ParallelGroup => ({ enabled: false, items: [] });
 
@@ -166,10 +167,19 @@ export type StepLinkTargetRow = {
 export type StepDecisionRow = {
   id: string;
   step_id: string;
+  // legacy single-decider columns — still present during the expand/contract
+  // migration; deciders now live in decision_deciders. Read as fallback only.
   decider_position_id: string | null;
   decider_external: boolean;
   fail_step_id: string | null;
   fail_position_id: string | null;
   fail_external: boolean;
   fail_reason: string | null;
+};
+
+export type DecisionDeciderRow = {
+  id: string;
+  decision_id: string;
+  position_id: string | null;
+  external: boolean;
 };

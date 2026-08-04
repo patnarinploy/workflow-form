@@ -16,6 +16,7 @@ import {
   StepLinkRow,
   StepLinkTargetRow,
   StepDecisionRow,
+  DecisionDeciderRow,
 } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +53,7 @@ export default async function FormPage({
     let links: StepLinkRow[] = [];
     let targets: StepLinkTargetRow[] = [];
     let decisions: StepDecisionRow[] = [];
+    let deciders: DecisionDeciderRow[] = [];
     if (jobs.length) {
       const { data: stepRows } = await supabase.from("steps").select("*").in("job_id", jobs.map((j) => j.id));
       steps = (stepRows as StepRow[] | null) ?? [];
@@ -63,6 +65,10 @@ export default async function FormPage({
         ]);
         links = (linkRows as StepLinkRow[] | null) ?? [];
         decisions = (decisionRows as StepDecisionRow[] | null) ?? [];
+        if (decisions.length) {
+          const { data: deciderRows } = await supabase.from("decision_deciders").select("*").in("decision_id", decisions.map((d) => d.id));
+          deciders = (deciderRows as DecisionDeciderRow[] | null) ?? [];
+        }
         if (links.length) {
           const { data: targetRows } = await supabase.from("step_link_targets").select("*").in("link_id", links.map((l) => l.id));
           targets = (targetRows as StepLinkTargetRow[] | null) ?? [];
@@ -99,13 +105,28 @@ export default async function FormPage({
       stepsByJob.set(s.job_id, arr);
     }
 
+    const decidersByDecision = new Map<string, string[]>();
+    for (const dd of deciders) {
+      const token = dd.external ? specialToken("external") : dd.position_id;
+      if (!token) continue;
+      const arr = decidersByDecision.get(dd.decision_id) ?? [];
+      arr.push(token);
+      decidersByDecision.set(dd.decision_id, arr);
+    }
+
     const buildDecision = (stepId: string): Decision => {
       const d = decisionByStep.get(stepId);
       if (!d) return emptyDecision();
       const failKind: Decision["failKind"] = d.fail_step_id ? "step" : d.fail_position_id || d.fail_external ? "position" : "";
+      const fromTable = decidersByDecision.get(d.id) ?? [];
+      const deciderTokens = fromTable.length
+        ? fromTable
+        : d.decider_external || d.decider_position_id
+        ? [d.decider_external ? specialToken("external") : (d.decider_position_id as string)]
+        : [positionId];
       return {
         enabled: true,
-        decider: d.decider_external ? specialToken("external") : d.decider_position_id ?? positionId,
+        deciders: deciderTokens,
         failKind,
         failStepId: d.fail_step_id ?? "",
         failPosition: d.fail_external ? specialToken("external") : d.fail_position_id ?? "",

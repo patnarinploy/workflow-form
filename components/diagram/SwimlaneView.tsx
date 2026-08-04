@@ -423,8 +423,14 @@ function renderNode(n: SwimNode) {
       {isDec ? (
         <>
           <polygon points={`0,${-NODE_H / 2 - 4} ${NODE_W / 2},0 0,${NODE_H / 2 + 4} ${-NODE_W / 2},0`} fill="#FBEEE1" stroke="#B65418" strokeWidth={1.6} />
-          <text x={0} y={-2} fontSize={11.5} textAnchor="middle" fill="#8A3D12">{truncate(n.label, 16)}</text>
-          {n.decisionFail && <text x={0} y={12} fontSize={9.5} textAnchor="middle" fill="#B65418">{truncate(n.decisionFail, 20)}</text>}
+          <text x={0} y={n.decider ? -8 : -2} fontSize={11.5} textAnchor="middle" fill="#8A3D12">{truncate(n.label, 16)}</text>
+          {n.decider && (
+            <text x={0} y={3} fontSize={8.5} textAnchor="middle" fill="#8A3D12">
+              ตัดสิน: {truncate(n.decider, 18)}
+              <title>{n.decider}</title>
+            </text>
+          )}
+          {n.decisionFail && <text x={0} y={n.decider ? 15 : 12} fontSize={9.5} textAnchor="middle" fill="#B65418">{truncate(n.decisionFail, 20)}</text>}
         </>
       ) : (
         <>

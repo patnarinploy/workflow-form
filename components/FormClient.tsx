@@ -38,6 +38,22 @@ function normalizeParallel(pl: unknown): Step["parallel"] {
   return { enabled: !!g.enabled, items };
 }
 
+// Coerce a stored decision into the current shape, converting the old single
+// `decider` token into the `deciders` array so a pre-v12 draft isn't lost.
+function normalizeDecision(dc: unknown): Step["decision"] {
+  const base = emptyStep().decision;
+  const d = (dc ?? {}) as Record<string, unknown>;
+  if (typeof d.enabled !== "boolean") return base;
+  const merged = { ...base, ...d } as Step["decision"];
+  if (!Array.isArray((d as Record<string, unknown>).deciders)) {
+    const old = (d as Record<string, unknown>).decider;
+    merged.deciders = typeof old === "string" && old ? [old] : [];
+  } else {
+    merged.deciders = ((d as Record<string, unknown>).deciders as unknown[]).filter((x) => typeof x === "string") as string[];
+  }
+  return merged;
+}
+
 // fresh emptyStep() so a stale draft can never crash the editor.
 function normalizeJobs(raw: unknown): Job[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
@@ -60,7 +76,7 @@ function normalizeJobs(raw: unknown): Job[] | null {
             waitsFor: w && Array.isArray(w.items) ? (w as unknown as Step["waitsFor"]) : es.waitsFor,
             sendsTo: sd && Array.isArray(sd.items) ? (sd as unknown as Step["sendsTo"]) : es.sendsTo,
             approver: ap && Array.isArray(ap.positions) ? (ap as unknown as Step["approver"]) : es.approver,
-            decision: dc && typeof dc.enabled === "boolean" ? ({ ...es.decision, ...dc } as Step["decision"]) : es.decision,
+            decision: normalizeDecision(dc),
             parallel: normalizeParallel(pl),
           };
         })

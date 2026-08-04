@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ResponseRow, JobRow, StepRow, StepLinkRow, StepLinkTargetRow, StepDecisionRow } from "./types";
+import { ResponseRow, JobRow, StepRow, StepLinkRow, StepLinkTargetRow, StepDecisionRow, DecisionDeciderRow } from "./types";
 import { loadDirectory, Directory } from "./directory";
 
 export type RawData = {
@@ -9,6 +9,7 @@ export type RawData = {
   links: StepLinkRow[];
   targets: StepLinkTargetRow[];
   decisions: StepDecisionRow[];
+  deciders: DecisionDeciderRow[];
 };
 
 export type EdgeStatus = "matched" | "mismatch" | "pending";
@@ -38,7 +39,7 @@ export type Workload = {
 export type FlowSend = { what: string; conditional: boolean; condition: string; targets: string[]; external: boolean };
 export type FlowWait = { what: string; targets: string[]; external: boolean };
 export type FlowDecision = {
-  decider: string; // position id, or "" when own/unknown
+  deciders: string[]; // position ids (may be several)
   deciderExternal: boolean;
   failStepId: string; // real step id, or ""
   failPosition: string; // position id, or ""
@@ -187,6 +188,20 @@ export function reconcile(
     }
   }
 
+  // deciders also count toward the "ผู้อนุมัติ/ผู้ตัดสินบ่อยสุด" panel (all deciders, not just the first)
+  const deciderPositionsByDecision = new Map<string, Set<string>>();
+  for (const dd of data.deciders) {
+    if (dd.external || !dd.position_id) continue;
+    const s = deciderPositionsByDecision.get(dd.decision_id) ?? new Set<string>();
+    s.add(dd.position_id);
+    deciderPositionsByDecision.set(dd.decision_id, s);
+  }
+  for (const d of data.decisions) {
+    const fromTable = deciderPositionsByDecision.get(d.id);
+    const deciderPositions = fromTable && fromTable.size ? [...fromTable] : d.decider_position_id ? [d.decider_position_id] : [];
+    for (const p of deciderPositions) approverCount.set(p, (approverCount.get(p) ?? 0) + 1);
+  }
+
   const allEdges: PairEdge[] = [];
   for (const [k, acc] of edges) {
     const [from, to] = k.split("|");
@@ -264,12 +279,24 @@ export function reconcile(
   }
   const decisionByStep = new Map<string, StepDecisionRow>();
   for (const d of data.decisions) decisionByStep.set(d.step_id, d);
+  // deciders now live in decision_deciders (many rows per decision).
+  const decidersByDecision = new Map<string, { positions: string[]; external: boolean }>();
+  for (const dd of data.deciders) {
+    const e = decidersByDecision.get(dd.decision_id) ?? { positions: [], external: false };
+    if (dd.external) e.external = true;
+    else if (dd.position_id) e.positions.push(dd.position_id);
+    decidersByDecision.set(dd.decision_id, e);
+  }
   const flowDecision = (stepId: string): FlowDecision | null => {
     const d = decisionByStep.get(stepId);
     if (!d) return null;
+    const dd = decidersByDecision.get(d.id);
+    // read-with-fallback: prefer decision_deciders, else legacy single column
+    const deciders = dd?.positions.length ? dd.positions : d.decider_position_id ? [d.decider_position_id] : [];
+    const deciderExternal = dd ? dd.external : !!d.decider_external;
     return {
-      decider: d.decider_position_id ?? "",
-      deciderExternal: !!d.decider_external,
+      deciders,
+      deciderExternal,
       failStepId: d.fail_step_id ?? "",
       failPosition: d.fail_position_id ?? "",
       failExternal: !!d.fail_external,
@@ -384,7 +411,7 @@ export function reconcile(
 export async function loadAndReconcile(
   supabase: SupabaseClient
 ): Promise<{ data: RawData; result: Reconciliation; dir: Directory }> {
-  const [dir, { data: responses }, { data: jobs }, { data: steps }, { data: links }, { data: targets }, { data: decisions }] = await Promise.all([
+  const [dir, { data: responses }, { data: jobs }, { data: steps }, { data: links }, { data: targets }, { data: decisions }, { data: deciders }] = await Promise.all([
     loadDirectory(supabase),
     supabase.from("responses").select("*"),
     supabase.from("jobs").select("*"),
@@ -392,6 +419,7 @@ export async function loadAndReconcile(
     supabase.from("step_links").select("*"),
     supabase.from("step_link_targets").select("*"),
     supabase.from("step_decisions").select("*"),
+    supabase.from("decision_deciders").select("*"),
   ]);
   const raw: RawData = {
     responses: (responses as ResponseRow[] | null) ?? [],
@@ -400,6 +428,7 @@ export async function loadAndReconcile(
     links: (links as StepLinkRow[] | null) ?? [],
     targets: (targets as StepLinkTargetRow[] | null) ?? [],
     decisions: (decisions as StepDecisionRow[] | null) ?? [],
+    deciders: (deciders as DecisionDeciderRow[] | null) ?? [],
   };
   return { data: raw, result: reconcile(raw, dir.activePositions, dir.memberCount), dir };
 }

@@ -33,6 +33,7 @@ export type SwimNode = {
   index?: number; // step number
   label: string;
   approver?: string;
+  decider?: string; // decision node: who decides (may be several, comma-separated)
   decisionFail?: string;
   targetPos?: string; // endpoint -> the other position (for jump)
   external?: boolean;
@@ -102,9 +103,12 @@ export function buildSwimlane(
         : undefined;
     if (approver) approvals++;
     let decisionFail: string | undefined;
+    let decider: string | undefined;
     if (s.decision) {
       const d = s.decision;
       decisionFail = d.failReason ? `ไม่ผ่าน (${d.failReason})` : "ไม่ผ่าน";
+      const names = [...d.deciders.map((p) => dir.positionName(p)), ...(d.deciderExternal ? ["ลูกค้า/ภายนอก"] : [])];
+      if (names.length) decider = names.join(", ");
     }
     nodes.push({
       id: nid,
@@ -114,6 +118,7 @@ export function buildSwimlane(
       index: i + 1,
       label: s.action,
       approver,
+      decider,
       decisionFail,
     });
     if (i > 0) links.push({ id: `seq-${i}`, from: stepNodeId.get(steps[i - 1].id)!, to: nid, kind: "seq" });

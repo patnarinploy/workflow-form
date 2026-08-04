@@ -229,15 +229,21 @@ export async function POST(req: Request) {
   }
 
   // step_decisions (pass/fail). The DB requires exactly one fail target per row.
-  const decisionRows: {
-    step_id: string;
-    decider_position_id: string | null;
-    decider_external: boolean;
-    fail_step_id: string | null;
-    fail_position_id: string | null;
-    fail_external: boolean;
-    fail_reason: string | null;
-  }[] = [];
+  // Deciders (possibly several) go into decision_deciders; the legacy single
+  // columns are dual-written for back-compat during the migration window.
+  type DecisionDraft = {
+    row: {
+      step_id: string;
+      decider_position_id: string | null;
+      decider_external: boolean;
+      fail_step_id: string | null;
+      fail_position_id: string | null;
+      fail_external: boolean;
+      fail_reason: string | null;
+    };
+    deciders: { position_id: string | null; external: boolean }[];
+  };
+  const decisionDrafts: DecisionDraft[] = [];
   jobs.forEach((job, ji) => {
     const jobId = jobIdByOrder.get(ji + 1);
     if (!jobId) return;
@@ -247,13 +253,14 @@ export async function POST(req: Request) {
       const stepId = stepIdByKey.get(`${jobId}:${si + 1}`);
       if (!stepId) return;
 
-      // decider: null = own position
-      let decider_position_id: string | null = null;
-      let decider_external = false;
-      if (d.decider) {
-        if (isSpecialToken(d.decider)) decider_external = true;
-        else if (getPosition(d.decider) && d.decider !== body.positionId) decider_position_id = d.decider;
+      // deciders: keep all selected (position ids + external), incl. own position
+      const deciders: { position_id: string | null; external: boolean }[] = [];
+      for (const token of d.deciders ?? []) {
+        if (isSpecialToken(token)) deciders.push({ position_id: null, external: true });
+        else if (getPosition(token)) deciders.push({ position_id: token, external: false });
       }
+      const firstPos = deciders.find((x) => x.position_id)?.position_id ?? null;
+      const anyExternal = deciders.some((x) => x.external);
 
       // fail target: exactly one of the three
       let fail_step_id: string | null = null;
@@ -268,21 +275,42 @@ export async function POST(req: Request) {
       const targetCount = (fail_step_id ? 1 : 0) + (fail_position_id ? 1 : 0) + (fail_external ? 1 : 0);
       if (targetCount !== 1) return; // skip incomplete decisions (constraint requires exactly one)
 
-      decisionRows.push({
-        step_id: stepId,
-        decider_position_id,
-        decider_external,
-        fail_step_id,
-        fail_position_id,
-        fail_external,
-        fail_reason: d.failReason?.trim() || null,
+      decisionDrafts.push({
+        row: {
+          step_id: stepId,
+          decider_position_id: firstPos,
+          decider_external: anyExternal,
+          fail_step_id,
+          fail_position_id,
+          fail_external,
+          fail_reason: d.failReason?.trim() || null,
+        },
+        deciders,
       });
     });
   });
-  if (decisionRows.length) {
-    const { error: decErr } = await supabase.from("step_decisions").insert(decisionRows);
-    if (decErr) {
+  if (decisionDrafts.length) {
+    const { data: insertedDecisions, error: decErr } = await supabase
+      .from("step_decisions")
+      .insert(decisionDrafts.map((x) => x.row))
+      .select("id, step_id");
+    if (decErr || !insertedDecisions) {
       return NextResponse.json({ error: "บันทึกจุดตัดสินใจไม่สำเร็จ" }, { status: 500 });
+    }
+    const decisionIdByStep = new Map<string, string>();
+    for (const r of insertedDecisions as { id: string; step_id: string }[]) decisionIdByStep.set(r.step_id, r.id);
+
+    const deciderRows: { decision_id: string; position_id: string | null; external: boolean }[] = [];
+    for (const draft of decisionDrafts) {
+      const decisionId = decisionIdByStep.get(draft.row.step_id);
+      if (!decisionId) continue;
+      for (const dec of draft.deciders) deciderRows.push({ decision_id: decisionId, position_id: dec.position_id, external: dec.external });
+    }
+    if (deciderRows.length) {
+      const { error: ddErr } = await supabase.from("decision_deciders").insert(deciderRows);
+      if (ddErr) {
+        return NextResponse.json({ error: "บันทึกผู้ตัดสินไม่สำเร็จ" }, { status: 500 });
+      }
     }
   }
 

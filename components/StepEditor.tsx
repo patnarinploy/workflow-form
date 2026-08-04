@@ -310,7 +310,7 @@ function DecisionEditor({
   selfId: string;
 }) {
   const toggle = (v: boolean) =>
-    onChange({ ...decision, enabled: v, decider: v && !decision.decider ? positionId : decision.decider });
+    onChange({ ...decision, enabled: v, deciders: v && decision.deciders.length === 0 ? [positionId] : decision.deciders });
 
   const selectValue = decision.failKind === "step" ? `step:${decision.failStepId}` : decision.failKind === "position" ? "position" : "";
   const onSelect = (v: string) => {
@@ -327,10 +327,10 @@ function DecisionEditor({
       {decision.enabled && (
         <div className="mt-2 ml-6 flex flex-col gap-2">
           <div>
-            <label className="block text-[12px] text-[var(--muted)] mb-1">ใครเป็นคนตัดสิน</label>
-            <PositionCombobox
-              value={decision.decider}
-              onChange={(decider) => onChange({ ...decision, decider })}
+            <label className="block text-[12px] text-[var(--muted)] mb-1">ใครเป็นคนตัดสิน <span className="text-[var(--faint)] font-normal">(เลือกได้หลายคน)</span></label>
+            <PositionSelect
+              value={decision.deciders}
+              onChange={(deciders) => onChange({ ...decision, deciders })}
               specials={EXTERNAL}
               placeholder="เลือกผู้ตัดสิน…"
             />

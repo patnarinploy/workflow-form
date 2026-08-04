@@ -41,6 +41,15 @@ export async function GET() {
   for (const s of data.steps) stepById.set(s.id, s);
   const decisionByStep = new Map<string, StepDecisionRow>();
   for (const d of data.decisions) decisionByStep.set(d.step_id, d);
+  // deciders now come from decision_deciders (many rows per decision)
+  const decidersByDecision = new Map<string, string[]>();
+  for (const dd of data.deciders) {
+    const label = dd.external ? "ลูกค้า/ภายนอก" : dd.position_id ? positionName(dd.position_id) : "";
+    if (!label) continue;
+    const arr = decidersByDecision.get(dd.decision_id) ?? [];
+    arr.push(label);
+    decidersByDecision.set(dd.decision_id, arr);
+  }
 
   const decisionPayload = (stepId: string) => {
     const d = decisionByStep.get(stepId);
@@ -52,8 +61,13 @@ export async function GET() {
       : d.fail_position_id
       ? { back_to: positionName(d.fail_position_id) }
       : {};
+    // read-with-fallback: decision_deciders, else legacy single column
+    const fromTable = decidersByDecision.get(d.id) ?? [];
+    const deciders = fromTable.length
+      ? fromTable
+      : [d.decider_external ? "ลูกค้า/ภายนอก" : d.decider_position_id ? positionName(d.decider_position_id) : "ตำแหน่งตัวเอง"];
     return {
-      decider: d.decider_external ? "ลูกค้า/ภายนอก" : d.decider_position_id ? positionName(d.decider_position_id) : "ตำแหน่งตัวเอง",
+      deciders,
       fail_reason: d.fail_reason ?? null,
       ...fail,
     };
