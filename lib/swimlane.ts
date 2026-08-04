@@ -32,8 +32,11 @@ export type SwimNode = {
   col: number;
   index?: number; // step number
   label: string;
+  labelNames?: string; // members of the endpoint's position (2nd line under label)
   approver?: string;
+  approverNames?: string; // members of the approver position(s)
   decider?: string; // decision node: who decides (may be several, comma-separated)
+  deciderNames?: string; // members of the decider position(s)
   decisionFail?: string;
   targetPos?: string; // endpoint -> the other position (for jump)
   external?: boolean;
@@ -87,6 +90,14 @@ export function buildSwimlane(
   const stepActionById = new Map<string, string>();
   for (const p of structure) for (const jb of p.jobs) for (const st of jb.steps) stepActionById.set(st.id, st.action);
 
+  // ONE central label helper for names — every position shown in the swimlane
+  // resolves its members through this, so the display stays consistent.
+  const namesOf = (id: string): string => dir.positionLabel(id, { withNames: true }).names;
+  const namesOfMany = (ids: string[]): string => {
+    const parts = ids.map(namesOf).filter(Boolean);
+    return parts.join(", ");
+  };
+
   const steps = [...job.steps].sort((a, b) => a.order - b.order);
   let sends = 0,
     approvals = 0,
@@ -101,14 +112,18 @@ export function buildSwimlane(
       s.approvers.length || s.approverExternal
         ? [...s.approvers.map((a) => dir.positionName(a)), ...(s.approverExternal ? ["ลูกค้า/ภายนอก"] : [])].join(", ")
         : undefined;
+    const approverNames = s.approvers.length ? namesOfMany(s.approvers) : undefined;
     if (approver) approvals++;
     let decisionFail: string | undefined;
     let decider: string | undefined;
+    let deciderNames: string | undefined;
     if (s.decision) {
       const d = s.decision;
       decisionFail = d.failReason ? `ไม่ผ่าน (${d.failReason})` : "ไม่ผ่าน";
       const names = [...d.deciders.map((p) => dir.positionName(p)), ...(d.deciderExternal ? ["ลูกค้า/ภายนอก"] : [])];
       if (names.length) decider = names.join(", ");
+      const people = namesOfMany(d.deciders);
+      if (people) deciderNames = people;
     }
     nodes.push({
       id: nid,
@@ -118,7 +133,9 @@ export function buildSwimlane(
       index: i + 1,
       label: s.action,
       approver,
+      approverNames,
       decider,
+      deciderNames,
       decisionFail,
     });
     if (i > 0) links.push({ id: `seq-${i}`, from: stepNodeId.get(steps[i - 1].id)!, to: nid, kind: "seq" });
@@ -127,7 +144,7 @@ export function buildSwimlane(
     const emitSend = (eid: string, lane: string, label: string, targetPos: string | undefined, external: boolean, sd: { what: string; conditional: boolean; condition: string }) => {
       sends++;
       if (external) externalUsed = true;
-      nodes.push({ id: eid, kind: "endpoint", lane, col: i + 0.5, label, targetPos, external });
+      nodes.push({ id: eid, kind: "endpoint", lane, col: i + 0.5, label, targetPos, external, labelNames: targetPos && !external ? namesOf(targetPos) : undefined });
       links.push({ id: `l-${eid}`, from: nid, to: eid, kind: "send", status: external ? "matched" : statusOf(owner, targetPos!), what: sd.what, conditional: sd.conditional ? sd.condition : undefined });
     };
     s.sends.forEach((sd, si) => {
@@ -141,7 +158,7 @@ export function buildSwimlane(
     // waits (left)
     const emitWait = (eid: string, lane: string, label: string, targetPos: string | undefined, external: boolean, what: string) => {
       if (external) externalUsed = true;
-      nodes.push({ id: eid, kind: "endpoint", lane, col: i - 0.5, label, targetPos, external });
+      nodes.push({ id: eid, kind: "endpoint", lane, col: i - 0.5, label, targetPos, external, labelNames: targetPos && !external ? namesOf(targetPos) : undefined });
       links.push({ id: `l-${eid}`, from: eid, to: nid, kind: "wait", status: external ? "matched" : statusOf(targetPos!, owner), what });
     };
     s.waits.forEach((w, wi) => {
@@ -172,6 +189,7 @@ export function buildSwimlane(
         lane: p.position,
         col: unpinned ? -0.4 : i, // unpinned -> lane head; pinned -> aligned column
         label: unpinned ? "(ยังไม่ระบุขั้นตอน)" : pinnedAction!,
+        labelNames: namesOf(p.position),
         targetPos: p.position,
         faint: unpinned,
       });
@@ -199,7 +217,7 @@ export function buildSwimlane(
       laneSet.add(d.failPosition);
       const eid = `failp-${s.id}`;
       const col = (nodes.find((n) => n.id === from)?.col ?? 0) + 0.5;
-      nodes.push({ id: eid, kind: "endpoint", lane: d.failPosition, col, label: `ตีกลับ ${dir.positionName(d.failPosition)}`, targetPos: d.failPosition });
+      nodes.push({ id: eid, kind: "endpoint", lane: d.failPosition, col, label: `ตีกลับ ${dir.positionName(d.failPosition)}`, labelNames: namesOf(d.failPosition), targetPos: d.failPosition });
       links.push({ id: `fail-${s.id}`, from, to: eid, kind: "fail", what: d.failReason });
     }
   });

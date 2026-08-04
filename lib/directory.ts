@@ -114,6 +114,11 @@ export type Directory = {
   // active staff nicknames in a position, in order (display only)
   positionMembers(id: string): string[];
   positionMembersLabel(id: string): string;
+  // ONE central place that turns a position id into a display label: the
+  // position name plus (optionally) its members' nicknames on a second line.
+  // Everything in the swimlane that shows a position should go through this so
+  // the two-"พลอย" disambiguation is applied everywhere, not just some spots.
+  positionLabel(id: string, opts?: { withNames?: boolean }): { name: string; names: string };
   memberCount(id: string): number;
 };
 
@@ -182,6 +187,10 @@ export function makeDirectory(positions: Position[], staff: Staff[]): Directory 
     positionsInGroup: (group) => activePositions.filter((p) => p.group === group),
     positionMembers,
     positionMembersLabel: (id) => positionMembers(id).join(", "),
+    positionLabel: (id, opts) => ({
+      name: positionName(id),
+      names: opts?.withNames ? positionMembers(id).join(", ") : "",
+    }),
     memberCount: (id) => activeStaff.filter((s) => s.positionId === id).length,
   };
 }

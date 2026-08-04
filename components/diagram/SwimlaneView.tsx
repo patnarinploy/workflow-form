@@ -245,7 +245,10 @@ export function SwimlaneView({
                   <line x1={PAD_X - 12} y1={PAD_TOP + i * LANE_H} x2={PAD_X - 12} y2={PAD_TOP + (i + 1) * LANE_H} stroke="#E3E8E4" />
                   <text x={10} y={PAD_TOP + i * LANE_H + 22} fontSize={12.5} fontWeight={600} fill="#1C2A25">{l.name}</text>
                   {l.members.length > 0 && (
-                    <text x={10} y={PAD_TOP + i * LANE_H + 38} fontSize={10.5} fill="#93A099">{l.members.join(", ")}</text>
+                    <text x={10} y={PAD_TOP + i * LANE_H + 38} fontSize={10.5} fill="#93A099">
+                      {truncate(l.members.join(", "), 22)}
+                      <title>{l.members.join(", ")}</title>
+                    </text>
                   )}
                 </g>
               ))}
@@ -397,22 +400,30 @@ export function SwimlaneView({
 function renderNode(n: SwimNode) {
   if (n.kind === "endpoint") {
     const w = 128;
+    const hasNames = !!n.labelNames;
+    const h = hasNames ? 34 : 28;
     return (
       <>
         <rect
           x={-w / 2}
-          y={-14}
+          y={-h / 2}
           width={w}
-          height={28}
+          height={h}
           rx={9}
           fill={n.faint ? "transparent" : n.external ? "#EFE7DE" : "#EEF1EE"}
           stroke={n.faint ? "#B7A6DE" : n.external ? "#D9C2A6" : "#CBD5CF"}
           strokeDasharray={n.faint ? "4 3" : undefined}
           opacity={n.faint ? 0.85 : 1}
         />
-        <text x={0} y={4} fontSize={10.5} textAnchor="middle" fill={n.faint ? "#7C5CBF" : n.external ? "#8A5A1C" : "#3A4A43"}>
+        <text x={0} y={hasNames ? -2 : 4} fontSize={10.5} textAnchor="middle" fill={n.faint ? "#7C5CBF" : n.external ? "#8A5A1C" : "#3A4A43"}>
           {truncate(n.label, 22)}
         </text>
+        {hasNames && (
+          <text x={0} y={9} fontSize={8.5} textAnchor="middle" fill={n.faint ? "#9C86D6" : "#8A968F"}>
+            {truncate(n.labelNames!, 24)}
+            <title>{n.labelNames}</title>
+          </text>
+        )}
       </>
     );
   }
@@ -423,21 +434,43 @@ function renderNode(n: SwimNode) {
       {isDec ? (
         <>
           <polygon points={`0,${-NODE_H / 2 - 4} ${NODE_W / 2},0 0,${NODE_H / 2 + 4} ${-NODE_W / 2},0`} fill="#FBEEE1" stroke="#B65418" strokeWidth={1.6} />
-          <text x={0} y={n.decider ? -8 : -2} fontSize={11.5} textAnchor="middle" fill="#8A3D12">{truncate(n.label, 16)}</text>
+          <text x={0} y={n.decider ? -14 : -2} fontSize={11} textAnchor="middle" fill="#8A3D12">
+            {truncate(n.label, 14)}
+            <title>{n.label}</title>
+          </text>
           {n.decider && (
-            <text x={0} y={3} fontSize={8.5} textAnchor="middle" fill="#8A3D12">
-              ตัดสิน: {truncate(n.decider, 18)}
+            <text x={0} y={-3} fontSize={8.5} textAnchor="middle" fill="#8A3D12">
+              ตัดสิน: {truncate(n.decider, 15)}
               <title>{n.decider}</title>
             </text>
           )}
-          {n.decisionFail && <text x={0} y={n.decider ? 15 : 12} fontSize={9.5} textAnchor="middle" fill="#B65418">{truncate(n.decisionFail, 20)}</text>}
+          {n.deciderNames && (
+            <text x={0} y={5} fontSize={8} textAnchor="middle" fill="#A9713F">
+              {truncate(n.deciderNames, 16)}
+              <title>{n.deciderNames}</title>
+            </text>
+          )}
+          {n.decisionFail && <text x={0} y={n.decider ? 15 : 12} fontSize={8.5} textAnchor="middle" fill="#B65418">{truncate(n.decisionFail, 16)}</text>}
         </>
       ) : (
         <>
           <rect x={-NODE_W / 2} y={-NODE_H / 2} width={NODE_W} height={NODE_H} rx={10} fill="#E4F5EE" stroke="#57C79E" strokeWidth={hasApprover ? 3 : 1.5} />
-          <text x={0} y={n.index ? -2 : 4} fontSize={11.5} textAnchor="middle" fill="#04342C">{truncate(n.label, 18)}</text>
+          <text x={0} y={n.index ? (hasApprover ? -6 : -2) : 4} fontSize={11.5} textAnchor="middle" fill="#04342C">{truncate(n.label, 18)}</text>
           {n.index != null && <text x={-NODE_W / 2 + 10} y={-NODE_H / 2 + 12} fontSize={9} fill="#128A64">{n.index}</text>}
-          {hasApprover && <text x={0} y={13} fontSize={8.5} textAnchor="middle" fill="#0F5F47">อนุมัติ: {truncate(n.approver!, 16)}</text>}
+          {hasApprover && (
+            <>
+              <text x={0} y={n.approverNames ? 8 : 13} fontSize={8.5} textAnchor="middle" fill="#0F5F47">
+                อนุมัติ: {truncate(n.approver!, 16)}
+                <title>{n.approver}</title>
+              </text>
+              {n.approverNames && (
+                <text x={0} y={17} fontSize={8} textAnchor="middle" fill="#5E8A79">
+                  {truncate(n.approverNames, 20)}
+                  <title>{n.approverNames}</title>
+                </text>
+              )}
+            </>
+          )}
         </>
       )}
     </>
