@@ -111,6 +111,11 @@ export function FocusView({
 
   const targetLabel = (token: string) =>
     isSpecialToken(token) ? SPECIAL_LABEL.external : dir.positionName(token);
+  // ONE central label helper — members shown under the position everywhere a
+  // position appears (disambiguates same-nick people, e.g. two "พลอย").
+  const namesOf = (token: string): string =>
+    isSpecialToken(token) ? "" : dir.positionLabel(token, { withNames: true }).names;
+  const namesOfMany = (ids: string[]): string => ids.map(namesOf).filter(Boolean).join(", ");
 
   // header counts
   const stepCount = jobs.reduce((n, j) => n + j.steps.length, 0);
@@ -130,22 +135,26 @@ export function FocusView({
       ? edgeStatus.get(`${posId}|${token}`) ?? "pending"
       : edgeStatus.get(`${token}|${posId}`) ?? "pending";
     const clickable = !special;
+    const names = namesOf(token);
     return (
       <button
         type="button"
         disabled={!clickable}
         onClick={() => clickable && onNavigate(token)}
-        title={what || undefined}
-        className={`${chipBase} ${statusClass(status)} ${clickable ? "hover:brightness-95 cursor-pointer" : "cursor-default"}`}
+        title={[what, names].filter(Boolean).join(" — ") || undefined}
+        className={`${chipBase} ${statusClass(status)} ${clickable ? "hover:brightness-95 cursor-pointer" : "cursor-default"} ${arrow === "to" ? "items-end" : "items-start"} !flex-col !gap-0`}
       >
-        {status === "matched" && <span className="opacity-60">✓</span>}
-        {status === "mismatch" && <span title="อีกฝั่งกรอกแล้วแต่ไม่ตรง">⚠</span>}
-        <span className="truncate">
-          <span className="opacity-70">{arrow === "from" ? "จาก " : "ให้ "}</span>
-          {targetLabel(token)}
-          {what ? <span className="opacity-80"> : {what}</span> : null}
+        <span className="inline-flex items-center gap-1 max-w-full">
+          {status === "matched" && <span className="opacity-60">✓</span>}
+          {status === "mismatch" && <span title="อีกฝั่งกรอกแล้วแต่ไม่ตรง">⚠</span>}
+          <span className="truncate">
+            <span className="opacity-70">{arrow === "from" ? "จาก " : "ให้ "}</span>
+            {targetLabel(token)}
+            {what ? <span className="opacity-80"> : {what}</span> : null}
+          </span>
+          {conditional ? <span className="text-[10px] bg-white/60 rounded px-1 ml-0.5">ถ้า {conditional}</span> : null}
         </span>
-        {conditional ? <span className="text-[10px] bg-white/60 rounded px-1 ml-0.5">ถ้า {conditional}</span> : null}
+        {names ? <span className="text-[10px] opacity-70 truncate max-w-full leading-tight">{names}</span> : null}
       </button>
     );
   }
@@ -263,8 +272,13 @@ export function FocusView({
                       <div className="min-w-0">
                         <div className="text-[13px] text-[#1C2A25] leading-snug">{s.action}</div>
                         {(s.approvers.length > 0 || s.approverExternal) && (
-                          <div className="mt-1 inline-flex items-center gap-1 text-[11px] bg-white/70 border border-[var(--line)] rounded-full px-2 py-0.5">
-                            อนุมัติโดย {[...s.approvers.map((a) => dir.positionName(a)), ...(s.approverExternal ? ["ลูกค้า/ภายนอก"] : [])].join(", ")}
+                          <div className="mt-1">
+                            <div className="inline-flex items-center gap-1 text-[11px] bg-white/70 border border-[var(--line)] rounded-full px-2 py-0.5">
+                              อนุมัติโดย {[...s.approvers.map((a) => dir.positionName(a)), ...(s.approverExternal ? ["ลูกค้า/ภายนอก"] : [])].join(", ")}
+                            </div>
+                            {namesOfMany(s.approvers) && (
+                              <div className="text-[10px] text-[var(--faint)] mt-0.5 ml-2">{namesOfMany(s.approvers)}</div>
+                            )}
                           </div>
                         )}
                         {isDecision && (
@@ -281,8 +295,9 @@ export function FocusView({
                             ) : decision!.failExternal ? (
                               "ส่งกลับ ลูกค้า/ภายนอก"
                             ) : decision!.failPosition ? (
-                              <button onClick={() => onNavigate(decision!.failPosition)} className="underline font-semibold">
+                              <button onClick={() => onNavigate(decision!.failPosition)} className="underline font-semibold" title={namesOf(decision!.failPosition) || undefined}>
                                 กลับไป {dir.positionName(decision!.failPosition)}
+                                {namesOf(decision!.failPosition) ? <span className="font-normal opacity-70"> ({namesOf(decision!.failPosition)})</span> : null}
                               </button>
                             ) : (
                               "—"
